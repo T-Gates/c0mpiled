@@ -9,7 +9,7 @@ export function createMesh({ localStream, sendSignal, onTrack, onMessage, onChan
   function makePeer(peerId) {
     const existing = peers.get(peerId);
     if (existing) return existing;
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }] });
     const peer = { pc, dc: null, pendingIce: [], stream: null };
     peers.set(peerId, peer);
 
