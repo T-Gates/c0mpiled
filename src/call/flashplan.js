@@ -124,7 +124,7 @@ export function classifyResult(steps, judge) {
 }
 
 // ---------- v1.1 얼굴 맞추기 ----------
-export const ALIGN = { cy: 0.47, ry: 0.27, aspect: 0.64, sizeMin: 0.7, sizeMax: 1.3, holdMs: 800, timeoutMs: 20000 };
+export const ALIGN = { cy: 0.47, ry: 0.35, aspect: 0.64, sizeMin: 0.85, sizeMax: 1.25, holdMs: 800, timeoutMs: 20000 };
 
 // 타원: 중심 (0.5·W, cy·H), 반높이 ry·H(px), 반너비 = 반높이(px) × aspect
 // size = 얼굴 bbox 높이(px) / 타원 높이(2·ry·H), inside = bbox 중심이 타원 안
