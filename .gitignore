@@ -1,0 +1,5 @@
+certs/
+.DS_Store
+# 실측 데이터(얼굴·폰 측정값)는 공개 레포에 올리지 않음
+docs/*.json
+calibration.json

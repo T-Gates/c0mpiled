@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시안 A+ — 얼굴 맞추기 단계</title>
+<style>
+  :root { --bg:#14171c; --tile:#22272f; --line:#323946; --ink:#eef1f5; --muted:#9aa4b2; --accent:#3b7bf0; --ok:#2fa865; --bad:#e0564a; --warn:#d99a2b; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .draftbar { position:fixed; top:0; left:0; right:0; z-index:100; display:flex; gap:6px; align-items:center; padding:6px 10px; background:#fff8d6; color:#5a4a00; font-size:12px; border-bottom:1px solid #e6d58a; flex-wrap:wrap; }
+  .draftbar b { margin-right:6px; }
+  .draftbar button { font:inherit; border:1px solid #d9c56c; background:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; }
+  .draftbar button.on { background:#5a4a00; color:#fff; border-color:#5a4a00; }
+  .screen { display:none; position:fixed; inset:30px 0 0 0; }
+  .screen.on { display:flex; }
+
+  /* 참여자: 얼굴 맞추기 (통화 화면 위 전체 덮개) */
+  #align { flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:16px; background:#0d0f13; }
+  .stage { position:relative; height:min(72vh, 560px); aspect-ratio:4/3; max-width:100%; border-radius:16px; overflow:hidden; background:radial-gradient(circle at 50% 42%, #4a5566 0, #2a313b 60%); }
+  .stage .person { position:absolute; left:50%; bottom:0; transform:translateX(-50%); transition:height .4s; }
+  .stage svg.guide { position:absolute; inset:0; width:100%; height:100%; }
+  .guide path, .guide ellipse { fill:none; stroke:rgba(255,255,255,.9); stroke-width:3; stroke-dasharray:10 7; }
+  .ok .guide path, .ok .guide ellipse { stroke:var(--ok); stroke-dasharray:none; stroke-width:4; }
+  .msg { font-size:20px; font-weight:700; text-align:center; }
+  .msg small { display:block; font-size:14px; font-weight:400; color:var(--muted); margin-top:6px; }
+  .pill { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:8px 14px; border-radius:999px; font-size:14px; font-weight:600; white-space:nowrap; }
+  .pill.far { background:rgba(217,154,43,.92); color:#1a1200; }
+  .pill.good { background:rgba(47,168,101,.95); color:#fff; }
+  .meter { width:min(420px, 90vw); height:8px; background:#2a303a; border-radius:4px; position:relative; }
+  .meter span { position:absolute; left:0; top:0; bottom:0; border-radius:4px; background:var(--warn); }
+  .meter i { position:absolute; top:-4px; bottom:-4px; width:2px; background:#fff; }
+  .ok .meter span { background:var(--ok); }
+
+  /* 호스트: 대상 타일 */
+  #host { flex-direction:column; }
+  .grid { flex:1; display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; padding:16px; align-content:center; }
+  .tile { position:relative; border-radius:14px; aspect-ratio:4/3; overflow:hidden; background:radial-gradient(circle at 50% 42%, #4a5566 0, #2a313b 60%); border:3px solid transparent; }
+  .tile.sel { border-color:var(--accent); }
+  .tile .person { position:absolute; left:50%; bottom:0; transform:translateX(-50%); height:78%; }
+  .name { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.55); padding:4px 9px; border-radius:7px; font-size:13px; }
+  .badge { position:absolute; left:10px; top:10px; font-size:13px; font-weight:600; padding:6px 10px; border-radius:8px; background:rgba(0,0,0,.7); line-height:1.5; }
+  .badge .sub { font-weight:400; font-size:12px; color:#cfd6df; }
+  .selmark { position:absolute; right:10px; top:10px; background:var(--accent); font-size:12px; font-weight:600; padding:4px 9px; border-radius:7px; }
+  .bar { display:flex; justify-content:center; align-items:center; gap:10px; padding:14px 16px 6px; }
+  .cbtn { font:inherit; font-size:13px; background:var(--tile); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:10px 14px; min-width:76px; }
+  .judge { font:inherit; font-size:14px; font-weight:700; border:1px solid var(--line); border-radius:12px; padding:13px 18px; background:var(--tile); color:var(--ink); }
+  .hint { text-align:center; font-size:12px; color:var(--muted); padding-bottom:14px; }
+  .note { position:fixed; right:12px; bottom:12px; max-width:340px; background:#fff; color:#1c2330; font-size:12px; line-height:1.55; padding:10px 12px; border-radius:10px; box-shadow:0 4px 20px rgba(0,0,0,.4); }
+</style>
+</head>
+<body>
+<div class="draftbar"><b>시안 A+ · 얼굴 맞추기 단계</b>
+  <button data-s="align" data-m="far">1 참여자 · 너무 멂</button>
+  <button data-s="align" data-m="ok">2 참여자 · 맞춤 완료</button>
+  <button data-s="host" data-m="wait">3 호스트 · 정렬 대기</button>
+  <a href="index.html" style="margin-left:auto;color:#5a4a00">← 시안 목록</a>
+</div>
+
+<!-- 참여자 화면 -->
+<section class="screen" id="align">
+  <div class="msg" id="msg">윤곽선에 얼굴과 어깨를 맞춰 주세요<small>호스트가 사람 확인을 요청했습니다 · 맞추면 화면 색이 약 4초 동안 바뀝니다</small></div>
+  <div class="stage" id="stage">
+    <svg class="person" id="person" viewBox="0 0 100 100" style="height:52%"><circle cx="50" cy="34" r="18" fill="#a8977f"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#a8977f"/></svg>
+    <!-- 가이드: 얼굴 타원(화면 높이의 54%) + 어깨선. 기존 Human Check 가이드(cy 0.47, ry 0.27)와 같은 크기 -->
+    <svg class="guide" viewBox="0 0 400 300" preserveAspectRatio="none">
+      <ellipse cx="200" cy="141" rx="52" ry="81" />
+      <path d="M40 300 C 52 248, 108 236, 150 230 Q 176 226, 178 212 M360 300 C 348 248, 292 236, 250 230 Q 224 226, 222 212" />
+    </svg>
+    <div class="pill far" id="pill">조금 더 가까이 와 주세요</div>
+  </div>
+  <div class="meter" id="meter"><span id="meterFill" style="width:42%"></span><i style="left:70%"></i></div>
+  <div style="font-size:12px;color:var(--muted)" id="meterTxt">얼굴 크기 42% · 70% 이상이면 시작</div>
+</section>
+
+<!-- 호스트 화면 -->
+<section class="screen" id="host">
+  <div class="grid">
+    <div class="tile"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#8d99ab"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#8d99ab"/></svg><div class="name">준형 (나 · 호스트)</div></div>
+    <div class="tile sel"><svg class="person" viewBox="0 0 100 100" style="height:52%"><circle cx="50" cy="34" r="18" fill="#a8977f"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#a8977f"/></svg>
+      <div class="badge">얼굴 맞추는 중 · 42%<div class="sub">70% 이상 0.8초 유지되면 자동으로 플래시 시작 · 20초 제한</div></div>
+      <div class="selmark">선택됨</div><div class="name">민지</div></div>
+    <div class="tile"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#7f95a8"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#7f95a8"/></svg><div class="name">도윤</div></div>
+  </div>
+  <div class="bar"><button class="cbtn">🎤 마이크</button><button class="cbtn">📷 카메라</button><button class="judge">판정 취소</button><button class="cbtn" style="background:var(--bad);border-color:var(--bad)">나가기</button></div>
+  <div class="hint">민지가 얼굴을 맞추는 중입니다</div>
+</section>
+
+<div class="note"><b>흐름</b><br>호스트 판정 클릭 → 참여자 화면에 윤곽선(얼굴 타원+어깨) → 호스트가 받은 영상에서 얼굴 크기·위치 확인 → 맞춘 상태 0.8초 유지 시 자동으로 색 플래시 → 결과.<br>기준: 얼굴 높이가 타원 높이의 70~130%이고 얼굴 중심이 타원 안 (기존 Human Check 가이드와 같은 기준). 플래시 중 얼굴이 기준보다 작아지면 "얼굴이 멀어져 판정 불가".</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+function show(s, m) {
+  document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === s));
+  document.querySelectorAll('.draftbar button').forEach((b) => b.classList.toggle('on', b.dataset.s === s && b.dataset.m === m));
+  if (s === 'align') {
+    const ok = m === 'ok';
+    $('#align').classList.toggle('ok', ok);
+    $('#person').style.height = ok ? '96%' : '52%';
+    $('#pill').className = 'pill ' + (ok ? 'good' : 'far');
+    $('#pill').textContent = ok ? '좋아요, 그대로 계세요' : '조금 더 가까이 와 주세요';
+    $('#meterFill').style.width = ok ? '92%' : '42%';
+    $('#meterTxt').textContent = ok ? '얼굴 크기 92% · 곧 화면 색이 바뀝니다' : '얼굴 크기 42% · 70% 이상이면 시작';
+  }
+}
+document.querySelectorAll('.draftbar button').forEach((b) => b.onclick = () => show(b.dataset.s, b.dataset.m));
+{ const [s, m] = (location.hash.slice(1) || 'align:far').split(':'); show(s, m); }
+</script>
+</body>
+</html>

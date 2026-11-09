@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Human Check 통화</title>
+<style>
+  :root { --bg:#14171c; --tile:#22272f; --line:#323946; --ink:#eef1f5; --muted:#9aa4b2; --accent:#3b7bf0; --ok:#2fa865; --bad:#e0564a; --warn:#d99a2b; --na:#5b6472; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .screen { display:none; position:fixed; inset:0; }
+  .screen.on { display:flex; }
+
+  /* 공통: 영상 */
+  .video { position:relative; background:radial-gradient(circle at 50% 42%, #4a5566 0, #2a313b 60%); overflow:hidden; }
+  .video video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:transparent; }
+  .video video.mirror { transform:scaleX(-1); }
+  .video.camoff video { visibility:hidden; }
+  .camoff-label { position:absolute; inset:0; display:none; align-items:center; justify-content:center; color:var(--muted); font-size:14px; }
+  .video.camoff .camoff-label { display:flex; }
+
+  /* 로비 */
+  #lobby { align-items:center; justify-content:center; gap:28px; padding:24px; flex-wrap:wrap; overflow-y:auto; }
+  .lobby-prev { width:420px; max-width:100%; aspect-ratio:4/3; border-radius:16px; }
+  .lobby-prev .ctrls { position:absolute; bottom:12px; left:50%; transform:translateX(-50%); display:flex; gap:8px; }
+  .lobby-card { width:340px; max-width:100%; display:flex; flex-direction:column; gap:14px; }
+  .lobby-card h1 { margin:0; font-size:24px; }
+  .lobby-card p { margin:0; color:var(--muted); font-size:14px; line-height:1.5; }
+  label { font-size:13px; color:var(--muted); display:block; margin-bottom:6px; }
+  input { width:100%; font:inherit; font-size:15px; color:var(--ink); background:var(--tile); border:1px solid var(--line); border-radius:10px; padding:11px 12px; }
+  .btn { font:inherit; font-size:15px; font-weight:600; border:0; border-radius:10px; padding:12px 16px; cursor:pointer; color:#fff; background:var(--accent); }
+  .btn.ghost { background:var(--tile); border:1px solid var(--line); color:var(--ink); }
+  .btn:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; }
+  .row input { flex:1; min-width:0; }
+  .or { display:flex; align-items:center; gap:10px; color:var(--muted); font-size:12px; }
+  .or::before, .or::after { content:""; flex:1; height:1px; background:var(--line); }
+  .notice { font-size:12px; color:var(--warn); line-height:1.5; }
+  .err { font-size:13px; color:#ffb4ad; background:#3a2326; border:1px solid #6b3238; border-radius:10px; padding:9px 12px; line-height:1.5; display:none; }
+  .err.on { display:block; }
+  .roominfo { font-size:13px; color:var(--muted); }
+  .roominfo b { color:var(--ink); font-weight:600; }
+  .newroom { font-size:13px; color:var(--accent); align-self:flex-start; }
+
+  /* 통화 */
+  #call { flex-direction:column; }
+  .topinfo { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 16px; font-size:13px; color:var(--muted); }
+  .topinfo .room { color:var(--ink); font-weight:600; }
+  .topinfo a { color:var(--accent); }
+  .topinfo .invite { word-break:break-all; }
+  .topinfo .who { white-space:nowrap; }
+  .grid { flex:1; min-height:0; display:grid; grid-template-columns:repeat(var(--cols, 3), minmax(0, 1fr)); grid-auto-rows:max-content; gap:10px; padding:0 16px; align-content:center; width:100%; max-width:calc(var(--cols, 3) * 640px); align-self:center; overflow-y:auto; }
+  .tile { border-radius:14px; aspect-ratio:4/3; border:3px solid transparent; background-clip:padding-box; cursor:default; }
+  .tile.pick { cursor:pointer; }
+  .tile.pick:hover { border-color:#4b5568; }
+  .tile.sel, .tile.sel:hover { border-color:var(--accent); }
+  .name { position:absolute; left:10px; bottom:10px; background:rgba(0,0,0,.55); padding:4px 9px; border-radius:7px; font-size:13px; display:flex; gap:6px; align-items:center; }
+  .selmark { position:absolute; right:10px; top:10px; background:var(--accent); font-size:12px; font-weight:600; padding:4px 9px; border-radius:7px; display:none; }
+  .tile.sel .selmark { display:block; }
+  .badge { position:absolute; left:10px; top:10px; font-size:13px; font-weight:700; padding:6px 10px; border-radius:8px; display:none; }
+  .badge.ok { background:var(--ok); display:block; }
+  .badge.bad { background:var(--bad); display:block; }
+  .badge.na { background:var(--na); display:block; }
+  .badge.run { background:rgba(0,0,0,.65); display:block; font-weight:600; }
+  .steps { display:flex; gap:3px; margin-top:6px; }
+  .steps i { width:18px; height:6px; border-radius:2px; background:#555; }
+  .detail { position:absolute; left:10px; top:48px; background:rgba(0,0,0,.7); font-size:12px; line-height:1.6; padding:7px 10px; border-radius:8px; display:none; color:#dde3ea; }
+  .detail.on { display:block; }
+  .bar { display:flex; justify-content:center; align-items:center; gap:10px; padding:14px 16px 18px; flex-wrap:wrap; }
+  .cbtn { font:inherit; font-size:13px; background:var(--tile); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:10px 14px; min-width:76px; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .cbtn.off { background:#3a2326; border-color:#6b3238; color:#ffb4ad; }
+  .cbtn .ic { font-size:18px; line-height:1; }
+  .sep { width:1px; height:36px; background:var(--line); margin:0 4px; }
+  .judge { font:inherit; font-size:14px; font-weight:700; border:0; border-radius:12px; padding:13px 18px; background:var(--accent); color:#fff; cursor:pointer; }
+  .judge:disabled { background:#2b3340; color:#6f7a8a; cursor:not-allowed; }
+  .leave { background:var(--bad); border-color:var(--bad); color:#fff; }
+  .hint { text-align:center; font-size:12px; color:var(--muted); margin-top:-8px; padding-bottom:8px; }
+  [hidden] { display:none !important; }
+
+  /* 참여자 화면: 플래시 (통화 화면 위 전체) */
+  #flash { z-index:50; flex-direction:column; align-items:center; justify-content:flex-end; background:#fff; }
+  #flash .pill { margin-bottom:28px; background:rgba(0,0,0,.6); color:#fff; padding:8px 14px; border-radius:999px; font-size:13px; text-align:center; max-width:calc(100% - 32px); }
+
+  @media (max-width: 699px) {
+    .grid { display:flex; flex-direction:column; max-width:none; }
+    .grid .tile { flex:none; width:100%; }
+    .grid .tile:first-child { margin-top:auto; }
+    .grid .tile:last-child { margin-bottom:auto; }
+    .topinfo { flex-direction:column; align-items:flex-start; gap:4px; }
+    .bar { gap:8px; flex-wrap:nowrap; }
+    .cbtn { min-width:0; padding:9px 12px; }
+    .judge { padding:12px 14px; white-space:nowrap; }
+    .sep { margin:0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 로비 -->
+<section class="screen on" id="lobby">
+  <div class="video lobby-prev" id="lobbyPrev">
+    <video id="lobbyVideo" class="mirror" autoplay playsinline muted></video>
+    <div class="camoff-label">카메라 꺼짐</div>
+    <div class="ctrls">
+      <button class="cbtn" id="lobbyMic" type="button"><span class="ic">🎤</span>마이크</button>
+      <button class="cbtn" id="lobbyCam" type="button"><span class="ic">📷</span>카메라</button>
+    </div>
+  </div>
+  <div class="lobby-card">
+    <h1>Human Check 통화</h1>
+    <p>같은 Wi-Fi에 있는 사람과 3인까지 화상통화합니다.</p>
+    <div><label for="nameInput">내 이름</label><input id="nameInput" maxlength="20" autocomplete="off" placeholder="이름" /></div>
+    <button class="btn" id="createBtn" type="button" data-full>방 만들기 (호스트)</button>
+    <div class="or" data-full>또는</div>
+    <div data-full><label for="codeInput">방 코드</label><div class="row"><input id="codeInput" placeholder="예: ab12" maxlength="4" autocomplete="off" autocapitalize="off" spellcheck="false" /><button class="btn ghost" id="joinBtn" type="button">참여하기</button></div></div>
+    <div class="roominfo" id="inviteInfo" data-invite hidden>방 <b id="inviteRoom"></b>에 입장합니다</div>
+    <button class="btn" id="enterBtn" type="button" data-invite hidden>입장하기</button>
+    <div class="err" id="lobbyErr"></div>
+    <a class="newroom" id="newRoomLink" href="call.html" hidden>새 방 만들기</a>
+    <div class="notice">참여하면 호스트가 화면 색 깜빡임 확인(약 4초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
+  </div>
+</section>
+
+<!-- 통화 -->
+<section class="screen" id="call">
+  <div class="topinfo">
+    <span>방 <span class="room" id="roomCode"></span> · 초대 주소 <span class="invite" id="inviteUrl"></span> <a href="#" id="copyBtn">복사</a></span>
+    <span class="who" id="whoInfo"></span>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="bar">
+    <button class="cbtn" id="micBtn" type="button"><span class="ic">🎤</span>마이크</button>
+    <button class="cbtn" id="camBtn" type="button"><span class="ic">📷</span>카메라</button>
+    <div class="sep" data-host></div>
+    <button class="judge" id="judgeBtn" type="button" data-host disabled>딥페이크 판정</button>
+    <div class="sep"></div>
+    <button class="cbtn leave" id="leaveBtn" type="button"><span class="ic">✕</span>나가기</button>
+  </div>
+  <div class="hint" id="hint" data-host>판정할 참여자 화면을 클릭하세요</div>
+</section>
+
+<!-- 참여자 플래시 -->
+<section class="screen" id="flash"><div class="pill">호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요</div></section>
+
+<script type="module" src="./src/call/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>시안 B — 무대 + 판정 패널</title>
+<style>
+  /* Human Check(index.html)와 같은 밝은 톤 */
+  :root { --ink:#1c2330; --muted:#5b6577; --line:#dde1e8; --card:#fff; --bg:#eef0f3; --accent:#2f6fde; --ok:#1f8a4c; --bad:#c0392b; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+  .draftbar { position:fixed; top:0; left:0; right:0; z-index:100; display:flex; gap:6px; align-items:center; padding:6px 10px; background:#fff8d6; color:#5a4a00; font-size:12px; border-bottom:1px solid #e6d58a; }
+  .draftbar b { margin-right:6px; }
+  .draftbar button { font:inherit; border:1px solid #d9c56c; background:#fff; border-radius:6px; padding:3px 8px; cursor:pointer; }
+  .draftbar button.on { background:#5a4a00; color:#fff; border-color:#5a4a00; }
+  .screen { display:none; position:fixed; inset:30px 0 0 0; }
+  .screen.on { display:flex; }
+  .video { position:relative; background:radial-gradient(circle at 50% 42%, #5b6676 0, #333b46 62%); overflow:hidden; border-radius:12px; }
+  .video svg.person { position:absolute; left:50%; bottom:0; transform:translateX(-50%); height:78%; }
+  .tint { position:absolute; inset:0; mix-blend-mode:soft-light; opacity:0; }
+  .name { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); color:#fff; padding:3px 8px; border-radius:6px; font-size:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  h1, h2, h3 { margin:0; }
+  .muted { color:var(--muted); }
+  input { width:100%; font:inherit; font-size:15px; border:1px solid var(--line); border-radius:9px; padding:10px 12px; }
+  .btn { font:inherit; font-size:15px; font-weight:600; border:0; border-radius:9px; padding:11px 16px; cursor:pointer; color:#fff; background:var(--accent); width:100%; }
+  .btn.sec { background:#fff; color:var(--accent); border:1px solid var(--accent); }
+  .btn:disabled { background:#c9cfd9; color:#fff; cursor:not-allowed; }
+
+  /* 로비 */
+  #lobby { flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:24px; }
+  .lobby-cols { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+  .lobby-cols .card { width:300px; display:flex; flex-direction:column; gap:12px; }
+  .lobby-cols p { margin:0; font-size:14px; line-height:1.5; }
+  .warn { max-width:616px; font-size:13px; color:#8a5a00; background:#fff4dc; border:1px solid #f0d9a4; border-radius:10px; padding:10px 14px; line-height:1.5; }
+
+  /* 통화 */
+  #call { gap:14px; padding:14px; }
+  .main { flex:1; display:flex; flex-direction:column; gap:10px; min-width:0; }
+  .head { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
+  .stage { flex:1; min-height:0; }
+  .strip { display:flex; gap:10px; height:120px; }
+  .strip .video { width:160px; flex:none; cursor:pointer; border:3px solid transparent; }
+  .strip .video.sel { border-color:var(--accent); }
+  .ctrl { display:flex; gap:8px; }
+  .ctrl button { font:inherit; font-size:13px; background:#fff; border:1px solid var(--line); border-radius:9px; padding:8px 12px; cursor:pointer; }
+  .ctrl .leave { margin-left:auto; color:var(--bad); border-color:#efc4bf; }
+  .panel { width:320px; flex:none; display:flex; flex-direction:column; gap:12px; overflow:auto; }
+  .panel .card { padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .who label { display:flex; align-items:center; gap:8px; padding:9px 10px; border:1px solid var(--line); border-radius:9px; font-size:14px; cursor:pointer; }
+  .who label.on { border-color:var(--accent); background:#eef4ff; }
+  .who .st { margin-left:auto; font-size:12px; }
+  .tl { display:grid; grid-template-columns:repeat(6, 1fr); gap:4px; }
+  .tl div { height:28px; border-radius:6px; border:1px solid var(--line); font-size:10px; display:flex; align-items:center; justify-content:center; color:#333; }
+  .tl div.cur { outline:2px solid var(--ink); }
+  .tl div.pend { opacity:.25; }
+  .bars { display:flex; flex-direction:column; gap:7px; font-size:12px; }
+  .bars .r { display:grid; grid-template-columns:40px 1fr 46px; align-items:center; gap:8px; }
+  .bars .track { height:8px; background:#edf0f4; border-radius:4px; position:relative; }
+  .bars .track span { position:absolute; left:0; top:0; bottom:0; border-radius:4px; }
+  .bars .track i { position:absolute; top:-3px; bottom:-3px; width:2px; background:#1c2330; left:28%; }
+  .verdict { border-radius:10px; padding:12px; font-weight:700; font-size:15px; }
+  .verdict.ok { background:#e5f4ec; color:var(--ok); }
+  .verdict small { display:block; font-weight:400; font-size:12px; color:var(--muted); margin-top:3px; }
+  .log { font-size:12px; color:var(--muted); line-height:1.7; }
+  .hide { display:none !important; }
+
+  #flash { align-items:flex-start; justify-content:flex-end; padding:16px; background:#f00; }
+  #flash .self { width:200px; aspect-ratio:4/3; opacity:.35; }
+  #flash .pill { position:absolute; left:50%; top:20px; transform:translateX(-50%); background:rgba(0,0,0,.6); color:#fff; padding:8px 14px; border-radius:999px; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="draftbar"><b>시안 B · 무대 + 판정 패널 (Human Check 톤)</b>
+  <button data-s="lobby">1 로비</button>
+  <button data-s="call" data-m="idle">2 호스트 통화</button>
+  <button data-s="call" data-m="sel">3 참여자 선택</button>
+  <button data-s="call" data-m="run">4 판정 중</button>
+  <button data-s="call" data-m="done">5 결과</button>
+  <button data-s="flash">6 참여자가 보는 플래시</button>
+  <a href="index.html" style="margin-left:auto;color:#5a4a00">← 시안 목록</a>
+</div>
+
+<section class="screen" id="lobby">
+  <h1>Human Check 통화</h1>
+  <div class="lobby-cols">
+    <div class="card">
+      <h3>방 만들기</h3>
+      <p class="muted">호스트가 되어 참여자를 판정할 수 있습니다.</p>
+      <input value="준형" aria-label="내 이름" />
+      <button class="btn">방 만들기</button>
+    </div>
+    <div class="card">
+      <h3>방 참여하기</h3>
+      <p class="muted">호스트에게 받은 방 코드를 입력하세요.</p>
+      <input placeholder="이름" />
+      <input placeholder="방 코드 (예: ab12)" />
+      <button class="btn sec">참여하기</button>
+    </div>
+  </div>
+  <div class="warn">참여자는 호스트가 판정을 누르면 화면 전체가 약 3초 동안 흰색·빨강·초록·파랑으로 바뀝니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
+</section>
+
+<section class="screen" id="call">
+  <div class="main">
+    <div class="head"><span><b>방 ab12</b> <span class="muted">· https://192.168.10.101:8443/?room=ab12</span></span><span class="muted">3명</span></div>
+    <div class="video stage" id="stage">
+      <svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#a8977f"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#a8977f"/></svg>
+      <div class="tint"></div>
+      <div class="name" id="stageName">민지</div>
+    </div>
+    <div class="strip">
+      <div class="video"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#8d99ab"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#8d99ab"/></svg><div class="name">나 · 호스트</div></div>
+      <div class="video" id="th1"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#a8977f"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#a8977f"/></svg><div class="name">민지</div></div>
+      <div class="video"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#7f95a8"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#7f95a8"/></svg><div class="name">도윤 🔇</div></div>
+    </div>
+    <div class="ctrl"><button>🎤 마이크</button><button>📷 카메라</button><button>초대 주소 복사</button><button class="leave">나가기</button></div>
+  </div>
+
+  <aside class="panel">
+    <div class="card who">
+      <h3>딥페이크 판정</h3>
+      <div class="muted" style="font-size:13px">1. 판정할 참여자 선택</div>
+      <label id="w1"><input type="radio" name="w" style="width:auto" /> 민지 <span class="st muted">미판정</span></label>
+      <label><input type="radio" name="w" style="width:auto" /> 도윤 <span class="st" style="color:var(--bad)">반사 없음</span></label>
+      <div class="muted" style="font-size:13px">2. 판정 실행 (상대 화면에 바로 플래시)</div>
+      <button class="btn" id="judgeBtn" disabled>딥페이크 판정</button>
+    </div>
+    <div class="card" id="prog">
+      <h3 style="font-size:15px">진행</h3>
+      <div class="tl" id="tl"></div>
+      <div class="bars" id="bars"></div>
+      <div class="verdict ok hide" id="verdict">✓ 사람 확인됨<small>3색 모두 얼굴 반사가 기준 이상</small></div>
+    </div>
+    <div class="card log">
+      <h3 style="font-size:15px;color:var(--ink)">기록</h3>
+      <div id="log">14:02 도윤 — 반사 없음 (빨강 0.000 · 초록 0.001 · 파랑 −0.000)</div>
+    </div>
+  </aside>
+</section>
+
+<section class="screen" id="flash">
+  <div class="pill">호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요</div>
+  <div class="video self"><svg class="person" viewBox="0 0 100 100"><circle cx="50" cy="34" r="18" fill="#a8977f"/><path d="M14 100 Q14 62 50 62 Q86 62 86 100Z" fill="#a8977f"/></svg><div class="name">나</div></div>
+</section>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const SEQ = [['흰', '#fff'], ['빨강', '#f33'], ['흰', '#fff'], ['초록', '#3c4'], ['흰', '#fff'], ['파랑', '#36f']];
+function timeline(cur) {
+  $('#tl').innerHTML = SEQ.map(([n, c], i) => `<div style="background:${c}" class="${cur < 0 ? 'pend' : i === cur ? 'cur' : i > cur ? 'pend' : ''}">${n}</div>`).join('');
+}
+function bars(vals) {
+  const rows = [['빨강', '#e03b3b'], ['초록', '#26a14a'], ['파랑', '#2f6fde']];
+  $('#bars').innerHTML = rows.map(([n, c], i) => {
+    const v = vals[i];
+    return `<div class="r"><span>${n}</span><div class="track"><span style="width:${v == null ? 0 : Math.min(100, v / 0.015 * 100)}%;background:${c}"></span><i title="기준 0.004"></i></div><span>${v == null ? '—' : v.toFixed(3)}</span></div>`;
+  }).join('') + '<div class="muted">얼굴 반사 Δ · 검은 선 = 기준 0.004</div>';
+}
+function mode(m) {
+  $('#w1').classList.toggle('on', m !== 'idle');
+  $('#w1 input').checked = m !== 'idle';
+  $('#th1').classList.toggle('sel', m !== 'idle');
+  $('#judgeBtn').disabled = m === 'idle' || m === 'run';
+  $('#judgeBtn').textContent = m === 'run' ? '판정 중… 4/6' : '딥페이크 판정';
+  $('#verdict').classList.toggle('hide', m !== 'done');
+  $('#stage .tint').style.opacity = m === 'run' ? .55 : 0;
+  $('#stage .tint').style.background = '#0f0';
+  $('#w1 .st').textContent = m === 'done' ? '사람 확인됨' : m === 'run' ? '판정 중' : '미판정';
+  $('#w1 .st').style.color = m === 'done' ? 'var(--ok)' : '';
+  if (m === 'idle' || m === 'sel') { timeline(-1); bars([null, null, null]); }
+  if (m === 'run') { timeline(3); bars([0.012, null, null]); }
+  if (m === 'done') { timeline(6); bars([0.012, 0.010, 0.007]); }
+  $('#log').innerHTML = (m === 'done' ? '14:05 민지 — 사람 확인됨 (빨강 0.012 · 초록 0.010 · 파랑 0.007)<br>' : '') + '14:02 도윤 — 반사 없음 (빨강 0.000 · 초록 0.001 · 파랑 −0.000)';
+}
+let ft;
+function show(s, m) {
+  document.querySelectorAll('.screen').forEach((e) => e.classList.toggle('on', e.id === s));
+  document.querySelectorAll('.draftbar button').forEach((b) => b.classList.toggle('on', b.dataset.s === s && (b.dataset.m || '') === (m || '')));
+  clearInterval(ft);
+  if (s === 'call') mode(m);
+  if (s === 'flash') { const c = ['#fff', '#f00', '#fff', '#0f0', '#fff', '#00f']; let i = 0; $('#flash').style.background = c[0]; ft = setInterval(() => { i = (i + 1) % 6; $('#flash').style.background = c[i]; }, 500); }
+}
+document.querySelectorAll('.draftbar button').forEach((b) => b.onclick = () => show(b.dataset.s, b.dataset.m));
+$('#w1').onclick = () => show('call', 'sel');
+$('#th1').onclick = () => show('call', 'sel');
+$('#judgeBtn').onclick = () => { show('call', 'run'); setTimeout(() => show('call', 'done'), 1800); };
+{ const [s, m] = (location.hash.slice(1) || 'lobby').split(':'); show(s, m); }
+</script>
+</body>
+</html>
