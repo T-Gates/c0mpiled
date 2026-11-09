@@ -141,7 +141,7 @@
     <button class="btn" id="enterBtn" type="button" data-invite hidden>입장하기</button>
     <div class="err" id="lobbyErr"></div>
     <a class="newroom" id="newRoomLink" href="call.html" hidden>새 방 만들기</a>
-    <div class="notice">참여하면 호스트가 pulse·무작위 조명 검사(약 50초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
+    <div class="notice">참여하면 호스트가 화면 색 깜빡임 확인(약 4초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
   </div>
 </section>
 
@@ -157,7 +157,6 @@
     <button class="cbtn" id="camBtn" type="button"><span class="ic">📷</span>카메라</button>
     <div class="sep" data-host></div>
     <button class="judge" id="judgeBtn" type="button" data-host disabled>딥페이크 판정</button>
-    <button id="cancelCheck" type="button" data-host hidden>검사 중지</button>
     <div class="sep"></div>
     <button class="cbtn leave" id="leaveBtn" type="button"><span class="ic">✕</span>나가기</button>
   </div>
@@ -166,7 +165,7 @@
 
 <!-- v1.1 참여자 얼굴 맞추기 -->
 <section class="screen" id="align">
-  <div class="msg">윤곽선에 얼굴과 어깨를 맞춰 주세요<small>호스트가 사람 확인을 요청했습니다 · 맞추면 pulse·조명 검사를 약 50초 진행합니다</small></div>
+  <div class="msg">윤곽선에 얼굴과 어깨를 맞춰 주세요<small>호스트가 사람 확인을 요청했습니다 · 맞추면 화면 색이 약 4초 동안 바뀝니다</small></div>
   <div class="stage" id="alignStage">
     <video id="alignVideo" autoplay playsinline muted></video>
     <svg class="guide" id="alignGuide" preserveAspectRatio="none"><ellipse id="alignEllipse" /><path id="alignShoulders" /></svg>
@@ -174,11 +173,10 @@
   </div>
   <div class="meter"><span id="alignMeterFill" style="width:0%"></span><i id="alignMeterMark"></i></div>
   <div class="metertxt" id="alignMeterTxt">얼굴 크기 0% · 70% 이상이면 시작</div>
-  <button id="stopAlignCheck" type="button">검사 중지 (Esc)</button>
 </section>
 
 <!-- 참여자 플래시 -->
-<section class="screen" id="flash"><div class="pill"><span id="checkMessage">검사 준비 중</span><br><button id="stopGuestCheck" type="button">중지 (Esc)</button></div></section>
+<section class="screen" id="flash"><div class="pill">호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요</div></section>
 
 <script type="module" src="./src/call/main.js"></script>
 </body>
