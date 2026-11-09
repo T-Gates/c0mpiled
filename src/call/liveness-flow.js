@@ -1,17 +1,20 @@
 import { CHECK, LIGHT_RGB, randomSequence, evaluateCheck } from './liveness.js';
 import { faceRegions } from './roi.js';
+import { ALIGN, faceAlignment } from './flashplan.js';
 
 // Host owns sequence, timing and verdict. Guest messages are display ACKs only.
 export function startHostCheck({ video, detect, send, onProgress, onResult, minDelta }) {
   const runId = crypto.randomUUID(), sequence = randomSequence();
   const frames = [], starts = [];
-  let done = false, expected = -1, waiting = true, pulseStart = null, pulseEnd = null;
+  let done = false, expected = -1, waiting = false, pulseStart = null, pulseEnd = null;
+  let aligned = false, okSince = null, lastAlignmentMessage = -Infinity;
   let timeout, next, frameCallback, watchdog, lastVideoTime = -1, lastFrameAt = performance.now(), dimensions = null;
   const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
   const rvfc = typeof video.requestVideoFrameCallback === 'function';
   const stop = () => {
     done = true; clearTimeout(timeout); clearTimeout(next); clearInterval(watchdog);
     if (frameCallback != null) rvfc ? video.cancelVideoFrameCallback(frameCallback) : cancelAnimationFrame(frameCallback);
+    send({ type: 'align-cancel', version: CHECK.version, runId });
     send({ type: 'check-stop', version: CHECK.version, runId });
   };
   const fail = reason => {
@@ -52,12 +55,26 @@ export function startHostCheck({ video, detect, send, onProgress, onResult, minD
     if (video.readyState >= 2 && video.videoWidth && video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
       const t = performance.now(), w = video.videoWidth, h = video.videoHeight;
-      if (dimensions && (dimensions[0] !== w || dimensions[1] !== h)) { fail('수신 영상 해상도 변경 · 다시 측정하세요'); return; }
+      if (aligned && dimensions && (dimensions[0] !== w || dimensions[1] !== h)) { fail('수신 영상 해상도 변경 · 다시 측정하세요'); return; }
       dimensions = [w, h];
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       try {
         ctx.drawImage(video, 0, 0, w, h);
         const faces = detect(canvas).faceLandmarks || [];
+        lastFrameAt = t;
+        if (!aligned) {
+          const a = faceAlignment(faces.length === 1 ? faces[0] : null, w, h, ALIGN);
+          if (a.aligned) okSince ??= t;
+          else okSince = null;
+          if (t - lastAlignmentMessage >= 100) {
+            lastAlignmentMessage = t;
+            send({ type: 'align-status', version: CHECK.version, runId, hint: a.hint, size: a.size });
+            onProgress({ phase: 'align', hint: a.hint });
+          }
+          if (okSince != null && t - okSince >= ALIGN.holdMs) { aligned = true; issue(); }
+          frameCallback = rvfc ? video.requestVideoFrameCallback(sample) : requestAnimationFrame(sample);
+          return;
+        }
         const roi = faces.length === 1 ? faceRegions(ctx.getImageData(0, 0, w, h), faces[0]) : null;
         frames.push({ t, faceCount: faces.length, ...roi }); lastFrameAt = t;
       } catch { fail('수신 영상 처리 오류'); return; }
@@ -67,13 +84,14 @@ export function startHostCheck({ video, detect, send, onProgress, onResult, minD
   const startedAt = performance.now();
   watchdog = setInterval(() => {
     const now = performance.now();
-    if (now - startedAt > CHECK.timeoutMs) fail('전체 검사 시간 초과');
+    if (!aligned && now - startedAt > ALIGN.timeoutMs) fail('얼굴 정렬 시간 초과');
+    else if (now - startedAt > CHECK.timeoutMs + ALIGN.timeoutMs) fail('전체 검사 시간 초과');
     else if (now - lastFrameAt > 2000) fail('수신 영상 frame 정지');
     else if (pulseStart && pulseEnd == null) onProgress({ phase: 'pulse', seconds: Math.max(0, Math.ceil((pulseStart + CHECK.pulseMs - now) / 1000)) });
   }, 500);
-  onProgress({ phase: 'starting' });
+  onProgress({ phase: 'align' });
   frameCallback = rvfc ? video.requestVideoFrameCallback(sample) : requestAnimationFrame(sample);
-  issue();
+  if (!send({ type: 'align-start', version: CHECK.version, runId })) fail('데이터 채널 연결 끊김');
   return { runId, receive, cancel: reason => fail(reason || '검사를 중지했습니다'), stop };
 }
 

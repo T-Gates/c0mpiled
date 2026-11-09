@@ -2,6 +2,7 @@
 import { DEFAULTS } from '../judge.js';
 import { startHostCheck, createGuestCheck } from './liveness-flow.js';
 import { createMesh } from './mesh.js';
+import { ALIGN } from './flashplan.js';
 
 // ---------- 상수 ----------
 const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
@@ -10,6 +11,15 @@ const FACE_MODEL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
 const COLOR_KO = { white: '흰색', red: '빨강', green: '초록', blue: '파랑' };
 
+
+const ALIGN_HINT_KO = {
+  no_face: '얼굴이 보이지 않아요',
+  closer: '조금 더 가까이 와 주세요',
+  farther: '조금만 뒤로 가 주세요',
+  center: '얼굴을 가운데로 맞춰 주세요',
+  ok: '좋아요, 그대로 계세요',
+};
+const METER_MAX = 1.3; // 크기 막대 0~130%
 
 // ---------- DOM ----------
 const $ = (id) => document.getElementById(id);
@@ -37,6 +47,17 @@ const judgeBtn = $('judgeBtn');
 const leaveBtn = $('leaveBtn');
 const hint = $('hint');
 const flashEl = $('flash');
+
+const alignEl = $('align');
+const alignStage = $('alignStage');
+const alignVideo = $('alignVideo');
+const alignGuide = $('alignGuide');
+const alignEllipse = $('alignEllipse');
+const alignShoulders = $('alignShoulders');
+const alignPill = $('alignPill');
+const alignMeterFill = $('alignMeterFill');
+const alignMeterMark = $('alignMeterMark');
+const alignMeterTxt = $('alignMeterTxt');
 
 // ---------- 상태 ----------
 let localStream = null;
@@ -119,9 +140,14 @@ function toggleMic() {
   applyMediaState();
   if (S && S.mesh) S.mesh.broadcast({ type: 'media-state', mic: media.mic, cam: media.cam });
 }
+function cancelGuestCheck() {
+  if (S?.aligning) S.mesh.send(S.hostId, { type: 'check-abort', version: 2, runId: S.aligning.runId });
+  closeAlign(); S?.guestCheck?.cancel();
+}
+
 function toggleCam() {
   media.cam = !media.cam;
-  if (!media.cam) S?.guestCheck?.cancel();
+  if (!media.cam) cancelGuestCheck();
   applyMediaState();
   if (S && S.mesh) S.mesh.broadcast({ type: 'media-state', mic: media.mic, cam: media.cam });
 }
@@ -257,6 +283,7 @@ function enterCall(info, name) {
     selected: null,
     check: null,
     guestCheck: null,
+    aligning: null,
     inviteUrl: `${location.origin}${location.pathname}?room=${info.room}`,
   };
   const isHost = S.role === 'host';
@@ -284,7 +311,7 @@ function enterCall(info, name) {
       if (!S) return;
       if (state === 'failed' || state === 'closed' || state === 'channel-closed') {
         if (S.check && S.check.peerId === peerId && !S.check.done) failCheck('연결이 끊겼습니다');
-        if (S.role === 'guest' && peerId === S.hostId) S.guestCheck?.cancel();
+        if (S.role === 'guest' && peerId === S.hostId) { S.guestCheck?.cancel(); closeAlign(); }
       }
       renderHostUi();
     },
@@ -393,6 +420,9 @@ function exitCall(message, { notifyServer = true } = {}) {
   if (notifyServer) sendLeaveBeacon(sess.room, sess.peerId);
   if (sess.check) stopCheck(sess.check);
   if (sess.guestCheck) sess.guestCheck.stop();
+  if (sess.aligning) clearTimeout(sess.aligning.timer);
+  alignEl.classList.remove('on', 'ok');
+  alignVideo.srcObject = null;
   try {
     sess.es && sess.es.close();
   } catch {}
@@ -500,18 +530,29 @@ function onPeerMessage(peerId, msg) {
         renderPeerMedia(pv);
       }
       break;
+    case 'align-start':
+      if (S.role === 'guest' && peerId === S.hostId && msg.version === 2 && !document.hidden && media.cam) openAlign(msg);
+      break;
+    case 'align-status':
+      if (S.role === 'guest' && peerId === S.hostId && S.aligning?.runId === msg.runId) renderAlign(msg.hint, msg.size);
+      break;
+    case 'align-cancel':
+      if (S.role === 'guest' && peerId === S.hostId && S.aligning?.runId === msg.runId) closeAlign();
+      break;
     case 'check-start':
     case 'check-light':
     case 'check-stop':
       if (S.role !== 'guest' || peerId !== S.hostId) break;
+      if (msg.type === 'check-start' || msg.type === 'check-stop') closeAlign();
       if (!S.guestCheck) S.guestCheck = createGuestCheck({
         send: packet => S?.mesh.send(peerId, packet),
         show: (rgb, message) => {
+          S.guestChecking = true;
           flashEl.style.background = `rgb(${rgb.join(',')})`;
           $('checkMessage').textContent = message;
           flashEl.classList.add('on');
         },
-        hide: () => flashEl.classList.remove('on'),
+        hide: () => { if (S) S.guestChecking = false; flashEl.classList.remove('on'); },
       });
       if (document.hidden || !media.cam) {
         S.mesh.send(peerId, { type: 'check-abort', version: msg.version, runId: msg.runId });
@@ -525,6 +566,104 @@ function onPeerMessage(peerId, msg) {
       break;
   }
 }
+
+// ---------- 참여자: 얼굴 맞추기 (v1.1) ----------
+// 윤곽선은 내 영상의 실제 콘텐츠 영역 좌표로 그린다: 무대(stage)를 영상과 같은 비율로 맞추고
+// SVG viewBox를 "높이 300 단위" 좌표계(너비 = 300·W/H)로 둔다 → 4:3에서는 시안의 400×300과 같다.
+// 어깨선은 시안 경로를 타원 반높이(ry) 기준 상대 좌표로 옮긴 것 (세로 영상에서도 사람 모양 유지).
+const SHOULDER = [
+  // [dx, dy] / ry, 시안: 중심(200,141), ry 81
+  [-160, 159], [-148, 107], [-92, 95], [-50, 89], [-24, 85], [-22, 71],
+].map(([x, y]) => [x / 81, y / 81]);
+
+function alignVideoSize() {
+  let W = alignVideo.videoWidth;
+  let H = alignVideo.videoHeight;
+  if (!(W > 0 && H > 0) && localStream) {
+    const st = localStream.getVideoTracks()[0]?.getSettings?.() || {};
+    W = st.width;
+    H = st.height;
+  }
+  if (!(W > 0 && H > 0)) {
+    W = 4;
+    H = 3;
+  }
+  return { W, H };
+}
+
+function layoutAlign() {
+  if (!alignEl.classList.contains('on')) return;
+  const { W, H } = alignVideoSize();
+  const availW = Math.max(120, window.innerWidth - 32);
+  const maxH = Math.min(window.innerHeight * 0.72, 560);
+  let h = maxH;
+  let w = (h * W) / H;
+  if (w > availW) {
+    w = availW;
+    h = (w * H) / W;
+  }
+  alignStage.style.width = `${Math.round(w)}px`;
+  alignStage.style.height = `${Math.round(h)}px`;
+  const vh = 300;
+  const vw = (vh * W) / H;
+  alignGuide.setAttribute('viewBox', `0 0 ${vw.toFixed(2)} ${vh}`);
+  const cx = vw / 2;
+  const cy = ALIGN.cy * vh;
+  const ry = ALIGN.ry * vh;
+  alignEllipse.setAttribute('cx', cx.toFixed(2));
+  alignEllipse.setAttribute('cy', cy.toFixed(2));
+  alignEllipse.setAttribute('ry', ry.toFixed(2));
+  alignEllipse.setAttribute('rx', (ry * ALIGN.aspect).toFixed(2));
+  const side = (sx) => {
+    const p = SHOULDER.map(([dx, dy]) => `${(cx + sx * dx * ry).toFixed(2)} ${(cy + dy * ry).toFixed(2)}`);
+    return `M${p[0]} C ${p[1]}, ${p[2]}, ${p[3]} Q ${p[4]}, ${p[5]}`;
+  };
+  alignShoulders.setAttribute('d', `${side(1)} ${side(-1)}`);
+}
+
+function renderAlign(hint, size) {
+  const h = ALIGN_HINT_KO[hint] ? hint : 'no_face';
+  const ok = h === 'ok';
+  alignEl.classList.toggle('ok', ok);
+  alignPill.textContent = ALIGN_HINT_KO[h];
+  const sz = typeof size === 'number' && Number.isFinite(size) ? size : 0;
+  alignMeterFill.style.width = `${(Math.min(Math.max(sz, 0), METER_MAX) / METER_MAX) * 100}%`;
+  const pct = Math.round(sz * 100);
+  alignMeterTxt.textContent = ok
+    ? `얼굴 크기 ${pct}% · 곧 pulse 측정을 시작합니다`
+    : `얼굴 크기 ${pct}% · ${Math.round(ALIGN.sizeMin * 100)}% 이상이면 시작`;
+}
+
+function openAlign(msg) {
+  if (!S || S.guestChecking || typeof msg.runId !== 'string') return;
+  closeAlign();
+  const sess = S;
+  const handle = { runId: msg.runId, timer: null };
+  // 호스트가 사라져 align-cancel이 오지 않는 경우를 위한 안전장치
+  handle.timer = setTimeout(() => {
+    if (sess.aligning === handle) closeAlign();
+  }, ALIGN.timeoutMs + 5000);
+  sess.aligning = handle;
+  alignVideo.srcObject = localStream;
+  alignVideo.play().catch(() => {});
+  alignMeterMark.style.left = `${(ALIGN.sizeMin / METER_MAX) * 100}%`;
+  renderAlign('no_face', null);
+  alignEl.classList.add('on');
+  layoutAlign();
+}
+
+function closeAlign() {
+  if (S && S.aligning) {
+    clearTimeout(S.aligning.timer);
+    S.aligning = null;
+  }
+  alignEl.classList.remove('on', 'ok');
+  alignVideo.srcObject = null;
+}
+
+alignVideo.addEventListener('resize', layoutAlign);
+alignVideo.addEventListener('loadedmetadata', layoutAlign);
+window.addEventListener('resize', layoutAlign);
 
 // ---------- 호스트: 선택 ----------
 function selectPeer(peerId) {
@@ -643,7 +782,8 @@ function onJudge() {
       if (S !== sess) return;
       pv.detail.classList.remove('on');
       pv.badge.className = 'badge run';
-      pv.badge.textContent = progress.phase === 'pulse'
+      check.phase = progress.phase;
+      pv.badge.textContent = progress.phase === 'align' ? `얼굴 맞추는 중 · ${ALIGN_HINT_KO[progress.hint] || '정렬 준비'}` : progress.phase === 'pulse'
         ? `pulse 측정 · ${progress.seconds}초 남음`
         : progress.phase === 'light' ? `조명 응답 · ${progress.index + 1}/${progress.total} · ${COLOR_KO[progress.color]}` : '검사 준비 중';
     },
@@ -808,12 +948,13 @@ nameInput.addEventListener('keydown', (e) => {
 });
 judgeBtn.addEventListener('click', onJudge);
 $('cancelCheck').addEventListener('click', () => failCheck('호스트가 검사를 중지했습니다'));
-$('stopGuestCheck').addEventListener('click', () => S?.guestCheck?.cancel());
+$('stopGuestCheck').addEventListener('click', cancelGuestCheck);
+$('stopAlignCheck').addEventListener('click', cancelGuestCheck);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { failCheck('검사 화면이 숨겨졌습니다'); S?.guestCheck?.cancel(); }
+  if (document.hidden) { failCheck('검사 화면이 숨겨졌습니다'); cancelGuestCheck(); }
 });
 window.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { failCheck('검사를 중지했습니다'); S?.guestCheck?.cancel(); }
+  if (e.key === 'Escape') { failCheck('검사를 중지했습니다'); cancelGuestCheck(); }
 });
 leaveBtn.addEventListener('click', () => exitCall(''));
 copyBtn.addEventListener('click', async (e) => {
