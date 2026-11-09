@@ -156,3 +156,66 @@ TURN/STUN, 4명 이상, 로그인·인증, 녹화, 화면 공유, 채팅, 손·�
 - **지연 정렬**: 데이터 채널 메시지와 영상의 지연 차이가 300ms를 넘으면 구간이 섞인다. 실측 후 `CALL_FLASH`를 조정한다.
 - **현장 Wi-Fi 기기 간 차단**: 막혀 있으면 휴대폰 핫스팟을 쓴다.
 - **LAN IP 변경**: Wi-Fi가 바뀌면 `tools/make-cert.sh`를 다시 실행해야 한다.
+
+---
+
+## call v1.1 — 얼굴 맞추기 단계 + 흰색 없는 색 순서 (사용자 승인 2026-11-09)
+
+승인 시안: `drafts/call-align.html`. 아래 내용이 v1과 충돌하면 v1.1이 우선한다.
+
+### 1. 얼굴 맞추기 단계 (플래시 전)
+
+흐름: 호스트 "딥페이크 판정" → 대상 참여자 화면에 맞추기 오버레이 → 호스트가 받은 영상으로 얼굴 크기·위치 판단 → 상태를 참여자에게 실시간 전송 → 맞춘 상태가 `ALIGN.holdMs` 동안 이어지면 호스트가 자동으로 `flash-start` → 플래시 → 판정.
+
+```js
+// src/call/flashplan.js 에 추가 (순수 함수)
+export const ALIGN = { cy: 0.47, ry: 0.27, aspect: 0.64, sizeMin: 0.7, sizeMax: 1.3, holdMs: 800, timeoutMs: 20000 };
+// 타원: 중심 (0.5, cy) 정규화 좌표, 반높이 ry × frameH (px), 반너비 = 반높이(px) × aspect.
+//   (세로 영상에서도 사람 얼굴 모양이 되도록 너비는 높이 기준으로 정한다)
+// landmarks: 얼굴 랜드마크(정규화), W/H: 영상 px 크기. landmarks 없으면 { found:false, aligned:false, size:null, hint:'no_face' }
+// size = 얼굴 bbox 높이(px) / 타원 높이(2·ry·H)
+// inside = 얼굴 bbox 중심이 타원 안
+// hint: 'no_face' | 'closer'(size < sizeMin) | 'farther'(size > sizeMax) | 'center'(크기는 맞는데 중심이 밖) | 'ok'
+export function faceAlignment(landmarks, W, H, align = ALIGN) // → { found, aligned, size, inside, hint }
+```
+
+데이터 채널 메시지 추가:
+- 호스트 → 참여자 `{type:'align-start', runId}`: 참여자는 맞추기 오버레이를 연다.
+- 호스트 → 참여자 `{type:'align-status', runId, hint, size}`: 최대 초당 10회. 참여자는 안내 문구·윤곽선 색·크기 막대를 갱신한다.
+- 호스트 → 참여자 `{type:'align-cancel', runId}`: 오버레이를 닫는다 (취소·시간 초과·오류).
+- `flash-start`를 받으면 오버레이를 닫고 바로 플래시로 넘어간다.
+
+참여자 오버레이 (시안 `drafts/call-align.html` 1·2번 화면):
+- 통화 화면 위 전체 덮개. 제목 "윤곽선에 얼굴과 어깨를 맞춰 주세요", 부제 "호스트가 사람 확인을 요청했습니다 · 맞추면 화면 색이 약 4초 동안 바뀝니다".
+- 내 카메라 영상(좌우 반전)을 크게 표시하고, 그 **영상 콘텐츠 영역**에 맞춰 타원(ALIGN과 같은 기하) + 어깨선을 그린다. 영상 비율이 세로든 가로든 실제 프레임 좌표와 일치해야 한다.
+- 윗쪽 알약 문구: no_face "얼굴이 보이지 않아요", closer "조금 더 가까이 와 주세요", farther "조금만 뒤로 가 주세요", center "얼굴을 가운데로 맞춰 주세요", ok "좋아요, 그대로 계세요". ok일 때 윤곽선·막대 초록 실선, 아니면 흰 점선 + 주황 알약.
+- 크기 막대: size를 0~130% 범위로 표시, 70% 위치에 기준선. 아래 "얼굴 크기 N% · 70% 이상이면 시작".
+
+호스트:
+- 맞추기 중 대상 타일 배지: "얼굴 맞추는 중 · N%" + 작은 줄 "70% 이상 0.8초 유지되면 자동으로 플래시 시작 · 20초 제한". 판정 버튼은 "판정 취소"가 되고, 누르면 `align-cancel`.
+- FaceLandmarker는 맞추기 + 플래시 동안 대상 영상에만 돈다.
+- `timeoutMs` 안에 못 맞추면 `align-cancel` + 결과 error, label "얼굴을 맞추지 못해 판정 실패".
+- 플래시 중 프레임마다 size도 기록한다. 플래시 프레임 중 얼굴이 검출된 프레임의 size 중앙값이 `sizeMin` 미만이면 결과 status `unmeasured`, label "? 얼굴이 멀어져 판정 불가".
+
+### 2. 색 순서: 흰색 없이 색만
+
+근거(실측 재계산, 표본 8라운드): 기준을 흰색 대신 다른 두 색의 평균으로 잡으면 진짜 얼굴의 목표 채널 Δ 최솟값이 0.0047~0.0065 → 0.0083~0.0128로 커지고, 폰 공격은 둘 다 0 근처였다. 색을 연달아 바꿀 때 이전 색이 섞이는지는 아직 실측하지 않았다.
+
+```js
+// v1의 makeFlashSequence를 대체
+// → 길이 6: red/green/blue 순열 2개를 이어 붙임. 각 순열은 독립 무작위, 이어지는 지점에서 같은 색이 연속되지 않게 한다.
+//   예: ['green','red','blue','red','green','blue']
+export function makeFlashSequence(rand)
+
+// v1의 buildFaceSteps를 대체
+// seq(6) + means(6) → 색 3개(red, green, blue 순서)에 대해 단계 1개씩:
+//   { color: c, sample: c 구간들 평균의 평균, baseline: 다른 두 색 구간 평균들의 평균 }
+//   평균에 들어갈 값 중 null은 빼고, 하나도 없으면 null.
+export function buildFaceSteps(seq, means)
+```
+
+- 판정은 그대로 `judgeColorSteps(steps, { ...DEFAULTS, minDelta })` (passRatio 0.8 → 3단계 모두 통과해야 human). `minDelta`는 우선 0.004 유지(실측 후 조정).
+- `CALL_FLASH`는 stepMs 600 / discardMs 300 유지 → 플래시 3.6초.
+- 플래시 색 RGB와 참여자 플래시 화면은 v1 그대로 (흰색 단계만 없어짐). 호스트 진행 막대 6칸은 각 칸을 해당 색으로 표시.
+- `classifyResult`의 deltas는 위 3단계의 목표 채널 Δ.
+- `window.__lastCheck`에 align 기록(시작·완료 시각, 맞추기 중 size 시계열 요약, 플래시 중 size 중앙값)을 추가한다.
