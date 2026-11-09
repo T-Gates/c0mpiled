@@ -223,3 +223,58 @@ export function buildFaceSteps(seq, means)
 ### v1.1 보정 (사용자 실기기 피드백 2026-11-09)
 - 실제 테스트에서 "너무 멀어서 인식 안 됨" → 더 가까이 오게 `ALIGN = { cy: 0.47, ry: 0.35, aspect: 0.64, sizeMin: 0.85, sizeMax: 1.25, ... }`로 변경.
   최소 얼굴 높이 = 화면 높이의 0.85 × 0.70 ≈ 60% (기존 0.7 × 0.54 ≈ 38%). 대략 1.6배 가까이 오는 기준(추정).
+
+---
+
+## call v1.2 — 측정을 참여자 쪽으로 이동 (사용자 결정 2026-11-09)
+
+배경: 실기기 테스트에서 진짜 얼굴의 목표 채널 Δ가 음수로 나왔다. 유력 가설은, 호스트가 `flash-step` 메시지 도착 시각으로 **수신 영상**을 자르는데 Wi-Fi 지연(RTT 70~247ms 실측) 때문에 영상이 메시지보다 300ms 넘게 늦어 직전 색 프레임이 섞인다는 것이다(흰색이 없으니 섞이면 음수). 프레임별 실측으로는 아직 확정하지 못했다. 사용자 결정: 측정(얼굴 검출·맞추기·ROI 색 평균)을 참여자 브라우저가 **자기 카메라 원본**으로 하고, 호스트는 그 값만 받아 판정·표시한다. 참여자는 자기가 화면을 칠한 시각과 자기 카메라 프레임 시각을 같은 시계로 비교하므로 네트워크 지연이 끼지 않는다.
+
+**보안상 의미(알고 진행)**: 참여자 브라우저가 측정하므로, 페이지 코드를 조작한 공격자는 가짜 측정값을 보낼 수 있다. 가상 카메라·녹화 영상 주입은 참여자 쪽 측정에서도 반사가 없으므로 그대로 걸린다. 해커톤 데모 범위에서 허용한다.
+
+v1/v1.1과 충돌하면 v1.2가 우선한다. 화면(시안 A, `drafts/call-align.html`)은 그대로다.
+
+### 역할
+- **호스트**: 대상 선택 → "딥페이크 판정" → `check-start` 전송(색 순서 `seq`는 호스트가 `makeFlashSequence()`로 만든다) → 진행 표시 → `check-result`를 받아 `buildFaceSteps` → `judgeColorSteps` → `classifyResult` + 거리 규칙 → 배지. **호스트는 MediaPipe를 쓰지 않는다**(판정 버튼 활성 조건에서 모델 준비 제외).
+- **참여자**: 입장하면 백그라운드로 FaceLandmarker(VIDEO, numFaces 1, GPU→CPU 대체)를 미리 불러오고 워밍업한다. `check-start`를 받으면 맞추기 오버레이 → 자기 카메라로 `faceAlignment` (ALIGN 그대로) → ok가 `holdMs` 이어지면 바로 플래시 → 각 구간을 칠한 시각(칠한 다음 rAF 시각)을 구간 시작으로 기록 → 자기 카메라 프레임을 `requestVideoFrameCallback`(없으면 rAF)으로 샘플링해 `{t, face, size}` 기록 → 끝나면 `bucketFrames`로 6구간 평균 → `check-result` 전송.
+  - 프레임 시각 `t`: rVFC 메타데이터의 `captureTime`이 있으면 그 값, 없으면 콜백 시각(`performance.now()` 기준으로 통일).
+  - 모델이 아직 준비 안 됐으면 오버레이에 "준비 중…"을 보이고 준비되면 맞추기를 시작한다. 불러오기 실패 시 `check-error`.
+
+### 데이터 채널 메시지 (v1.1의 align-*·flash-step·flash-end 대체)
+- 호스트 → 참여자 `{type:'check-start', runId, seq, stepMs, discardMs, align: ALIGN}`
+- 호스트 → 참여자 `{type:'check-cancel', runId}` (맞추기 중에만 의미 있음)
+- 참여자 → 호스트 `{type:'check-progress', runId, phase:'loading'|'align'|'flash', hint?, size?, i?}` — 최대 초당 5회 + 단계가 바뀔 때마다 1회. 호스트 배지: loading "참여자 준비 중", align "얼굴 맞추는 중 · N%"(v1.1과 같음), flash "판정 중 i/6 · 색".
+- 참여자 → 호스트 `{type:'check-result', runId, seq, means:[[r,g,b]|null ×6], flashSizeMedian, framesWithFace, frames, detectMsAvg, delegate, series:[{t,c,size}] (구간 시작 0 기준, c는 소수 4자리)}`
+- 참여자 → 호스트 `{type:'check-error', runId, reason}` (reason: 'model_failed' | 'align_timeout' | 'camera_off' | 'busy')
+- 참여자는 hostId에서 온 check-start만 따르고, 이미 진행 중이면 `check-error busy`.
+
+### 판정(호스트)
+- `steps = buildFaceSteps(result.seq, result.means)`, `judge = judgeColorSteps(steps, {...DEFAULTS, minDelta})`, `classifyResult(steps, judge)`.
+- `result.seq`가 호스트가 보낸 `seq`와 다르면 error "측정값이 요청과 다릅니다".
+- `flashSizeMedian < ALIGN.sizeMin` → unmeasured "? 얼굴이 멀어져 판정 불가" (v1.1과 같음).
+- 시간 제한: check-start 후 `ALIGN.timeoutMs + seq.length×stepMs + 10000`ms 안에 결과가 없으면 error. 참여자 쪽 맞추기 시간 초과는 참여자가 `check-error align_timeout`을 보내고, 호스트는 "얼굴을 맞추지 못해 판정 실패".
+- `window.__lastCheck`에 호스트 판정 결과 + 참여자가 보낸 값(series 포함)을 담는다. `__copyLastCheck()` 유지.
+
+### UI 언어: 영어 (사용자 결정 2026-11-09, 영어 발표)
+통화 화면(`call.html`, `src/call/*.js`)에 사용자에게 보이는 문구는 모두 영어로 한다(코드 주석·콘솔 로그는 예외). `<html lang="en">`. 아래 용어표를 따르고, 표에 없는 문구는 같은 톤(짧고 차분하게)으로 번역한다.
+
+| 한국어 | English |
+|---|---|
+| Human Check 통화 | Human Check Call |
+| 방 만들기 (호스트) / 방 참여하기 / 입장하기 | Create room (host) / Join room / Join |
+| 내 이름 / 방 코드 / 방 ab12에 입장합니다 | Your name / Room code / Joining room ab12 |
+| 마이크 / 카메라 / 나가기 / 초대 주소 / 복사 | Mic / Camera / Leave / Invite link / Copy |
+| 딥페이크 판정 / 판정 취소 / 선택됨 | Deepfake check / Cancel check / Selected |
+| 판정 중 3/6 · 초록 | Checking 3/6 · Green |
+| 얼굴 맞추는 중 · 62% / 참여자 준비 중 | Aligning face · 62% / Preparing participant |
+| ✓ 사람 확인됨 | ✓ Verified human |
+| ✕ 반사 없음 · 딥페이크 의심 | ✕ No reflection · Possible deepfake |
+| ? 얼굴이 잘 안 보여 판정 불가 | ? Face not visible · Can't verify |
+| ? 얼굴이 멀어져 판정 불가 | ? Face too far · Can't verify |
+| 얼굴을 맞추지 못해 판정 실패 | Couldn't align face · Check failed |
+| 판정 실패 · 다시 시도해 주세요 | Check failed · Please try again |
+| 윤곽선에 얼굴과 어깨를 맞춰 주세요 | Line up your face and shoulders with the outline |
+| 얼굴이 보이지 않아요 / 조금 더 가까이 와 주세요 / 조금만 뒤로 가 주세요 / 얼굴을 가운데로 맞춰 주세요 / 좋아요, 그대로 계세요 | Can't see your face / Move a little closer / Move back a little / Center your face / Great, hold still |
+| 호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요 | The host is verifying you're human · Please look at the screen |
+| 광과민성 안내 | When you join, the host can run a screen color flash check (about 4 s). Do not join if you are sensitive to flashing lights. |
+| 얼굴 반사 Δ · 빨강 0.012 · 초록 0.010 · 파랑 0.007 | Face reflection Δ · Red 0.012 · Green 0.010 · Blue 0.007 |

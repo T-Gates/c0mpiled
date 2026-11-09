@@ -11,9 +11,9 @@ export const FLASH_RGB = {
 const CHANNEL = { red: 0, green: 1, blue: 2 };
 
 export const RESULT_LABELS = {
-  human: '✓ 사람 확인됨',
-  suspect: '✕ 반사 없음 · 딥페이크 의심',
-  unmeasured: '? 얼굴이 잘 안 보여 판정 불가',
+  human: '✓ Verified human',
+  suspect: '✕ No reflection · Possible deepfake',
+  unmeasured: "? Face not visible · Can't verify",
 };
 
 function cryptoRand() {

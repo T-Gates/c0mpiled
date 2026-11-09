@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Human Check 통화</title>
+<title>Human Check Call</title>
 <style>
   :root { --bg:#14171c; --tile:#22272f; --line:#323946; --ink:#eef1f5; --muted:#9aa4b2; --accent:#3b7bf0; --ok:#2fa865; --bad:#e0564a; --warn:#d99a2b; --na:#5b6472; }
   * { box-sizing: border-box; }
@@ -124,59 +124,59 @@
 <section class="screen on" id="lobby">
   <div class="video lobby-prev" id="lobbyPrev">
     <video id="lobbyVideo" class="mirror" autoplay playsinline muted></video>
-    <div class="camoff-label">카메라 꺼짐</div>
+    <div class="camoff-label">Camera off</div>
     <div class="ctrls">
-      <button class="cbtn" id="lobbyMic" type="button"><span class="ic">🎤</span>마이크</button>
-      <button class="cbtn" id="lobbyCam" type="button"><span class="ic">📷</span>카메라</button>
+      <button class="cbtn" id="lobbyMic" type="button"><span class="ic">🎤</span>Mic</button>
+      <button class="cbtn" id="lobbyCam" type="button"><span class="ic">📷</span>Camera</button>
     </div>
   </div>
   <div class="lobby-card">
-    <h1>Human Check 통화</h1>
-    <p>같은 Wi-Fi에 있는 사람과 3인까지 화상통화합니다.</p>
-    <div><label for="nameInput">내 이름</label><input id="nameInput" maxlength="20" autocomplete="off" placeholder="이름" /></div>
-    <button class="btn" id="createBtn" type="button" data-full>방 만들기 (호스트)</button>
-    <div class="or" data-full>또는</div>
-    <div data-full><label for="codeInput">방 코드</label><div class="row"><input id="codeInput" placeholder="예: ab12" maxlength="4" autocomplete="off" autocapitalize="off" spellcheck="false" /><button class="btn ghost" id="joinBtn" type="button">참여하기</button></div></div>
-    <div class="roominfo" id="inviteInfo" data-invite hidden>방 <b id="inviteRoom"></b>에 입장합니다</div>
-    <button class="btn" id="enterBtn" type="button" data-invite hidden>입장하기</button>
+    <h1>Human Check Call</h1>
+    <p>Video call with up to 3 people on the same Wi-Fi.</p>
+    <div><label for="nameInput">Your name</label><input id="nameInput" maxlength="20" autocomplete="off" placeholder="Name" /></div>
+    <button class="btn" id="createBtn" type="button" data-full>Create room (host)</button>
+    <div class="or" data-full>or</div>
+    <div data-full><label for="codeInput">Room code</label><div class="row"><input id="codeInput" placeholder="e.g. ab12" maxlength="4" autocomplete="off" autocapitalize="off" spellcheck="false" /><button class="btn ghost" id="joinBtn" type="button">Join room</button></div></div>
+    <div class="roominfo" id="inviteInfo" data-invite hidden>Joining room <b id="inviteRoom"></b></div>
+    <button class="btn" id="enterBtn" type="button" data-invite hidden>Join</button>
     <div class="err" id="lobbyErr"></div>
-    <a class="newroom" id="newRoomLink" href="call.html" hidden>새 방 만들기</a>
-    <div class="notice">참여하면 호스트가 화면 색 깜빡임 확인(약 4초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
+    <a class="newroom" id="newRoomLink" href="call.html" hidden>Create a new room</a>
+    <div class="notice">When you join, the host can run a screen color flash check (about 4 s). Do not join if you are sensitive to flashing lights.</div>
   </div>
 </section>
 
 <!-- 통화 -->
 <section class="screen" id="call">
   <div class="topinfo">
-    <span>방 <span class="room" id="roomCode"></span> · 초대 주소 <span class="invite" id="inviteUrl"></span> <a href="#" id="copyBtn">복사</a></span>
+    <span>Room <span class="room" id="roomCode"></span> · Invite link <span class="invite" id="inviteUrl"></span> <a href="#" id="copyBtn">Copy</a></span>
     <span class="who" id="whoInfo"></span>
   </div>
   <div class="grid" id="grid"></div>
   <div class="bar">
-    <button class="cbtn" id="micBtn" type="button"><span class="ic">🎤</span>마이크</button>
-    <button class="cbtn" id="camBtn" type="button"><span class="ic">📷</span>카메라</button>
+    <button class="cbtn" id="micBtn" type="button"><span class="ic">🎤</span>Mic</button>
+    <button class="cbtn" id="camBtn" type="button"><span class="ic">📷</span>Camera</button>
     <div class="sep" data-host></div>
-    <button class="judge" id="judgeBtn" type="button" data-host disabled>딥페이크 판정</button>
+    <button class="judge" id="judgeBtn" type="button" data-host disabled>Deepfake check</button>
     <div class="sep"></div>
-    <button class="cbtn leave" id="leaveBtn" type="button"><span class="ic">✕</span>나가기</button>
+    <button class="cbtn leave" id="leaveBtn" type="button"><span class="ic">✕</span>Leave</button>
   </div>
-  <div class="hint" id="hint" data-host>판정할 참여자 화면을 클릭하세요</div>
+  <div class="hint" id="hint" data-host>Click the participant you want to check</div>
 </section>
 
 <!-- v1.1 참여자 얼굴 맞추기 -->
 <section class="screen" id="align">
-  <div class="msg">윤곽선에 얼굴과 어깨를 맞춰 주세요<small>호스트가 사람 확인을 요청했습니다 · 맞추면 화면 색이 약 4초 동안 바뀝니다</small></div>
+  <div class="msg">Line up your face and shoulders with the outline<small>The host requested a human check · Once aligned, the screen color changes for about 4 s</small></div>
   <div class="stage" id="alignStage">
     <video id="alignVideo" autoplay playsinline muted></video>
     <svg class="guide" id="alignGuide" preserveAspectRatio="none"><ellipse id="alignEllipse" /><path id="alignShoulders" /></svg>
-    <div class="apill" id="alignPill">얼굴이 보이지 않아요</div>
+    <div class="apill" id="alignPill">Can't see your face</div>
   </div>
   <div class="meter"><span id="alignMeterFill" style="width:0%"></span><i id="alignMeterMark"></i></div>
-  <div class="metertxt" id="alignMeterTxt">얼굴 크기 0% · 85% 이상이면 시작</div>
+  <div class="metertxt" id="alignMeterTxt">Face size 0% · Starts at 85%</div>
 </section>
 
 <!-- 참여자 플래시 -->
-<section class="screen" id="flash"><div class="pill">호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요</div></section>
+<section class="screen" id="flash"><div class="pill">The host is verifying you're human · Please look at the screen</div></section>
 
 <script type="module" src="./src/call/main.js"></script>
 </body>

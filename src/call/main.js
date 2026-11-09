@@ -1,5 +1,5 @@
 // Human Check 통화 — 화면·흐름 (브라우저 전용)
-import { DEFAULTS, judgeColorSteps } from '../judge.js';
+import { DEFAULTS, judgeColorSteps, chroma } from '../judge.js';
 import {
   CALL_FLASH,
   FLASH_RGB,
@@ -19,20 +19,20 @@ const VISION_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14
 const WASM_PATH = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 const FACE_MODEL =
   'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-const COLOR_KO = { white: '흰색', red: '빨강', green: '초록', blue: '파랑' };
+const COLOR_LABEL = { white: 'White', red: 'Red', green: 'Green', blue: 'Blue' };
 const STEP_SWATCH = { white: '#fff', red: '#e33', green: '#2c3', blue: '#37f' };
-const ERROR_LABEL = '판정 실패 · 다시 시도해 주세요';
+const ERROR_LABEL = 'Check failed · Please try again';
 const VALID_COLORS = new Set(Object.keys(FLASH_RGB));
-const ALIGN_FAIL_LABEL = '얼굴을 맞추지 못해 판정 실패';
-const FAR_LABEL = '? 얼굴이 멀어져 판정 불가';
+const ALIGN_FAIL_LABEL = "Couldn't align face · Check failed";
+const FAR_LABEL = "? Face too far · Can't verify";
 const ALIGN_HINT_KO = {
-  no_face: '얼굴이 보이지 않아요',
-  closer: '조금 더 가까이 와 주세요',
-  farther: '조금만 뒤로 가 주세요',
-  center: '얼굴을 가운데로 맞춰 주세요',
-  ok: '좋아요, 그대로 계세요',
+  no_face: "Can't see your face",
+  closer: 'Move a little closer',
+  farther: 'Move back a little',
+  center: 'Center your face',
+  ok: 'Great, hold still',
+  loading: 'Preparing…', // v1.2: 참여자 기기에서 얼굴 인식 모델을 아직 불러오는 중
 };
-const ALIGN_STATUS_MIN_MS = 100; // align-status 최대 초당 10회
 const METER_MAX = 1.3; // 크기 막대 0~130%
 
 // ---------- DOM ----------
@@ -80,7 +80,7 @@ let minDelta = DEFAULTS.minDelta;
 
 /** 통화 세션. 로비에서는 null */
 let S = null;
-// S = { room, peerId, role, hostId, name, es, mesh, peers: Map<peerId, PeerView>, selected, check, flashing, inviteUrl }
+// S = { room, peerId, role, hostId, name, es, mesh, peers: Map<peerId, PeerView>, selected, check(호스트), gcheck(참여자), inviteUrl }
 // PeerView = { peerId, name, role, tile, video, nameEl, badge, detail, mic, cam }
 
 // ---------- 화면 전환 ----------
@@ -105,7 +105,7 @@ function setLobbyError(msg, { newRoom = false } = {}) {
 async function startCamera() {
   if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     insecure = true;
-    setLobbyError('https:// 주소로 들어와 주세요');
+    setLobbyError('Please open this page with an https:// address');
     setLobbyBusy(true);
     return false;
   }
@@ -116,8 +116,8 @@ async function startCamera() {
     const denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
     setLobbyError(
       denied
-        ? '카메라·마이크 권한이 거부되었습니다. 브라우저 설정에서 허용한 뒤 새로고침해 주세요'
-        : '카메라·마이크를 열 수 없습니다. 다른 앱이 사용 중인지 확인한 뒤 새로고침해 주세요',
+        ? 'Camera and mic access was denied. Allow it in your browser settings, then reload.'
+        : "Can't open the camera or mic. Check that no other app is using it, then reload.",
     );
     return false;
   }
@@ -201,7 +201,7 @@ function sendLeaveBeacon(room, peerId) {
 function readName() {
   const name = nameInput.value.trim();
   if (!name) {
-    setLobbyError('이름을 입력해 주세요');
+    setLobbyError('Please enter your name');
     nameInput.focus();
     return null;
   }
@@ -226,13 +226,13 @@ async function onCreate() {
     if (!localStream && !(await startCamera())) return;
     const r = await api('/api/rooms', { name });
     if (!r.ok || !r.data) {
-      setLobbyError(r.status === 400 ? '이름을 입력해 주세요' : '방을 만들지 못했습니다. 잠시 후 다시 시도해 주세요');
+      setLobbyError(r.status === 400 ? 'Please enter your name' : "Couldn't create a room. Please try again shortly.");
       return;
     }
     enterCall(r.data, name);
   } catch (e) {
     console.warn(e);
-    setLobbyError('서버에 연결할 수 없습니다. 주소를 확인해 주세요');
+    setLobbyError("Can't reach the server. Please check the address.");
   } finally {
     setLobbyBusy(false);
   }
@@ -245,10 +245,10 @@ async function onJoin() {
   const code = codeInput.value.trim().toLowerCase();
   if (!/^[a-z0-9]{4}$/.test(code)) {
     if (inviteMode) {
-      setLobbyError('초대 주소의 방 코드가 올바르지 않습니다. 초대 주소를 다시 확인해 주세요', { newRoom: true });
+      setLobbyError('The room code in this invite link is invalid. Please check the link.', { newRoom: true });
       return;
     }
-    setLobbyError('방 코드 4글자를 입력해 주세요');
+    setLobbyError('Please enter the 4-character room code');
     codeInput.focus();
     return;
   }
@@ -259,18 +259,18 @@ async function onJoin() {
     if (!r.ok || !r.data) {
       if (r.status === 404)
         setLobbyError(
-          inviteMode ? '방을 찾을 수 없습니다. 이미 끝난 방일 수 있습니다' : '방을 찾을 수 없습니다. 방 코드를 확인해 주세요',
+          inviteMode ? 'Room not found. It may have already ended.' : 'Room not found. Please check the room code.',
           { newRoom: true },
         );
-      else if (r.status === 409) setLobbyError('방이 가득 찼습니다 (최대 3명)', { newRoom: true });
-      else if (r.status === 400) setLobbyError('이름을 입력해 주세요');
-      else setLobbyError('참여하지 못했습니다. 잠시 후 다시 시도해 주세요', { newRoom: true });
+      else if (r.status === 409) setLobbyError('This room is full (max 3 people)', { newRoom: true });
+      else if (r.status === 400) setLobbyError('Please enter your name');
+      else setLobbyError("Couldn't join. Please try again shortly.", { newRoom: true });
       return;
     }
     enterCall(r.data, name);
   } catch (e) {
     console.warn(e);
-    setLobbyError('서버에 연결할 수 없습니다. 주소를 확인해 주세요');
+    setLobbyError("Can't reach the server. Please check the address.");
   } finally {
     setLobbyBusy(false);
   }
@@ -289,8 +289,7 @@ function enterCall(info, name) {
     peers: new Map(),
     selected: null,
     check: null,
-    flashing: null,
-    aligning: null,
+    gcheck: null,
     inviteUrl: `${location.origin}${location.pathname}?room=${info.room}`,
   };
   const isHost = S.role === 'host';
@@ -317,8 +316,8 @@ function enterCall(info, name) {
     onPeerState: (peerId, state) => {
       if (!S) return;
       if (state === 'failed' || state === 'closed' || state === 'channel-closed') {
-        if (S.check && S.check.peerId === peerId && !S.check.done) failCheck('연결이 끊겼습니다');
-        if (S.role === 'guest' && peerId === S.hostId) closeAlign();
+        if (S.check && S.check.peerId === peerId && !S.check.done) failCheck('Connection lost');
+        if (S.role === 'guest' && peerId === S.hostId && S.gcheck) stopGuestCheck(S.gcheck);
       }
       renderHostUi();
     },
@@ -330,9 +329,8 @@ function enterCall(info, name) {
     S.mesh.connectTo(p.peerId).catch((e) => console.warn('offer 실패', p.peerId, e));
   }
 
-  if (isHost) {
-    ensureFaceModel().then(renderHostUi, renderHostUi);
-  }
+  // v1.2: 측정은 참여자가 한다 → 참여자가 입장하자마자 얼굴 인식 모델을 미리 불러오고 워밍업 (호스트는 MediaPipe 안 씀)
+  if (!isHost) ensureFaceModel().catch(() => {});
   applyMediaState();
   renderHostUi();
   show('call');
@@ -374,7 +372,7 @@ function openEvents(sess) {
     if (S !== sess) return;
     // 자동 재연결을 포기한 경우(서버가 우리를 모름 = 404 등)
     if (es.readyState === EventSource.CLOSED) {
-      exitCall('서버와 연결이 끊겼습니다. 다시 참여해 주세요', { notifyServer: false });
+      exitCall('Lost connection to the server. Please join again.', { notifyServer: false });
     }
   };
 }
@@ -402,13 +400,13 @@ function onServerEvent(ev) {
   } else if (ev.type === 'peer-left') {
     removePeer(ev.peerId);
   } else if (ev.type === 'room-closed') {
-    exitCall('호스트가 방을 닫았습니다', { notifyServer: false });
+    exitCall('The host closed the room', { notifyServer: false });
   }
 }
 
 function removePeer(peerId) {
   if (!S || peerId === S.peerId) return;
-  if (S.check && S.check.peerId === peerId && !S.check.done) failCheck('참여자가 나갔습니다');
+  if (S.check && S.check.peerId === peerId && !S.check.done) failCheck('The participant left');
   S.mesh.remove(peerId);
   const pv = S.peers.get(peerId);
   if (pv) {
@@ -426,10 +424,8 @@ function exitCall(message, { notifyServer = true } = {}) {
   S = null;
   if (notifyServer) sendLeaveBeacon(sess.room, sess.peerId);
   if (sess.check) stopCheck(sess.check);
-  if (sess.flashing) sess.flashing.cancel();
-  if (sess.aligning) clearTimeout(sess.aligning.timer);
-  alignEl.classList.remove('on', 'ok');
-  alignVideo.srcObject = null;
+  if (sess.gcheck) stopGuestCheck(sess.gcheck);
+  closeAlign();
   try {
     sess.es && sess.es.close();
   } catch {}
@@ -460,20 +456,20 @@ function addTile({ peerId, name, role, self = false }) {
   }
   const camoff = document.createElement('div');
   camoff.className = 'camoff-label';
-  camoff.textContent = '카메라 꺼짐';
+  camoff.textContent = 'Camera off';
   const badge = document.createElement('div');
   badge.className = 'badge';
   const detail = document.createElement('div');
   detail.className = 'detail';
   const selmark = document.createElement('div');
   selmark.className = 'selmark';
-  selmark.textContent = '선택됨';
+  selmark.textContent = 'Selected';
   const nameEl = document.createElement('div');
   nameEl.className = 'name';
   tile.append(video, camoff, badge, detail, selmark, nameEl);
   grid.append(tile);
 
-  const pv = { peerId, name: name || '참여자', role, self, tile, video, nameEl, badge, detail, mic: true, cam: true };
+  const pv = { peerId, name: name || 'Participant', role, self, tile, video, nameEl, badge, detail, mic: true, cam: true };
   if (self) {
     pv.mic = media.mic;
     pv.cam = media.cam;
@@ -490,8 +486,8 @@ function addTile({ peerId, name, role, self = false }) {
 
 function renderPeerMedia(pv) {
   let label = pv.name;
-  if (pv.self) label += S && S.role === 'host' ? ' (나 · 호스트)' : ' (나)';
-  else if (pv.role === 'host') label += ' (호스트)';
+  if (pv.self) label += S && S.role === 'host' ? ' (you · host)' : ' (you)';
+  else if (pv.role === 'host') label += ' (host)';
   pv.nameEl.textContent = pv.mic ? label : `${label} 🔇`;
   pv.tile.classList.toggle('camoff', !pv.cam);
 }
@@ -499,7 +495,7 @@ function renderPeerMedia(pv) {
 function renderCount() {
   if (!S) return;
   const n = S.peers.size;
-  whoInfo.textContent = `${S.role === 'host' ? '호스트' : '참여자'} · ${n}명`;
+  whoInfo.textContent = `${S.role === 'host' ? 'Host' : 'Participant'} · ${n} ${n === 1 ? 'person' : 'people'}`;
   grid.style.setProperty('--cols', String(Math.max(1, Math.min(3, n))));
 }
 
@@ -537,28 +533,22 @@ function onPeerMessage(peerId, msg) {
         renderPeerMedia(pv);
       }
       break;
-    case 'flash-start':
-      if (S.role === 'guest' && peerId === S.hostId) {
-        closeAlign(); // 맞추기 오버레이를 닫고 바로 플래시
-        startFlash(peerId, msg);
-      }
+    // 참여자 ← 호스트
+    case 'check-start':
+      if (S.role === 'guest' && peerId === S.hostId) onCheckStart(peerId, msg);
       break;
-    case 'align-start':
-      if (S.role === 'guest' && peerId === S.hostId) openAlign(msg);
+    case 'check-cancel':
+      if (S.role === 'guest' && peerId === S.hostId) onCheckCancel(msg);
       break;
-    case 'align-status':
-      if (S.role === 'guest' && peerId === S.hostId && S.aligning && msg.runId === S.aligning.runId) {
-        renderAlign(msg.hint, msg.size);
-      }
+    // 호스트 ← 참여자
+    case 'check-progress':
+      onCheckProgress(peerId, msg);
       break;
-    case 'align-cancel':
-      if (S.role === 'guest' && peerId === S.hostId && S.aligning && msg.runId === S.aligning.runId) closeAlign();
+    case 'check-result':
+      onCheckResult(peerId, msg);
       break;
-    case 'flash-step':
-      onFlashStep(peerId, msg);
-      break;
-    case 'flash-end':
-      onFlashEnd(peerId, msg);
+    case 'check-error':
+      onCheckError(peerId, msg);
       break;
   }
 }
@@ -626,33 +616,19 @@ function renderAlign(hint, size) {
   alignMeterFill.style.width = `${(Math.min(Math.max(sz, 0), METER_MAX) / METER_MAX) * 100}%`;
   const pct = Math.round(sz * 100);
   alignMeterTxt.textContent = ok
-    ? `얼굴 크기 ${pct}% · 곧 화면 색이 바뀝니다`
-    : `얼굴 크기 ${pct}% · ${Math.round(ALIGN.sizeMin * 100)}% 이상이면 시작`;
+    ? `Face size ${pct}% · Colors start soon`
+    : `Face size ${pct}% · Starts at ${Math.round(ALIGN.sizeMin * 100)}%`;
 }
 
-function openAlign(msg) {
-  if (!S || S.flashing || typeof msg.runId !== 'string') return;
-  closeAlign();
-  const sess = S;
-  const handle = { runId: msg.runId, timer: null };
-  // 호스트가 사라져 align-cancel이 오지 않는 경우를 위한 안전장치
-  handle.timer = setTimeout(() => {
-    if (sess.aligning === handle) closeAlign();
-  }, ALIGN.timeoutMs + 5000);
-  sess.aligning = handle;
+function showAlignOverlay() {
   alignVideo.srcObject = localStream;
   alignVideo.play().catch(() => {});
   alignMeterMark.style.left = `${(ALIGN.sizeMin / METER_MAX) * 100}%`;
-  renderAlign('no_face', null);
   alignEl.classList.add('on');
   layoutAlign();
 }
 
 function closeAlign() {
-  if (S && S.aligning) {
-    clearTimeout(S.aligning.timer);
-    S.aligning = null;
-  }
   alignEl.classList.remove('on', 'ok');
   alignVideo.srcObject = null;
 }
@@ -661,59 +637,263 @@ alignVideo.addEventListener('resize', layoutAlign);
 alignVideo.addEventListener('loadedmetadata', layoutAlign);
 window.addEventListener('resize', layoutAlign);
 
-// ---------- 참여자: 플래시 ----------
-function startFlash(hostPeerId, msg) {
-  if (S.flashing) return; // 이미 플래시 중이면 무시
+// ---------- 참여자: 측정 (v1.2) ----------
+// 참여자가 자기 카메라 원본으로 얼굴 검출·맞추기·ROI 색 평균을 한다.
+// 구간 시작 = 그 색을 칠한 다음 rAF 시각, 프레임 시각 = rVFC captureTime(없으면 콜백 시각). 둘 다 performance.now() 기준.
+const GUEST_PROGRESS_MIN_MS = 200; // check-progress 최대 초당 5회 (+ 단계가 바뀔 때 1회)
+const GUEST_TAIL_MS = 300; // 플래시가 끝난 뒤 늦게 도착하는 카메라 프레임을 더 받는 시간
+
+function mergeAlign(a) {
+  const o = { ...ALIGN };
+  if (a && typeof a === 'object') {
+    for (const k of Object.keys(ALIGN)) if (typeof a[k] === 'number' && Number.isFinite(a[k])) o[k] = a[k];
+  }
+  return o;
+}
+
+function onCheckStart(hostPeerId, msg) {
+  const runId = msg.runId;
+  if (typeof runId !== 'string') return;
+  const reply = (m) => S.mesh.send(hostPeerId, { ...m, runId });
+  if (S.gcheck && !S.gcheck.done) {
+    reply({ type: 'check-error', reason: 'busy' });
+    return;
+  }
   const seq = msg.seq;
   const stepMs = Number(msg.stepMs);
+  const discardMs = Number(msg.discardMs ?? CALL_FLASH.discardMs);
   if (!Array.isArray(seq) || seq.length === 0 || seq.length > 12 || !seq.every((c) => VALID_COLORS.has(c))) return;
-  if (!(stepMs >= 100 && stepMs <= 3000)) return;
-  const runId = msg.runId;
-  const sess = S;
-  let raf = 0;
-  let cancelled = false;
-  const paint = (c) => {
-    const [r, g, b] = FLASH_RGB[c];
-    flashEl.style.background = `rgb(${r}, ${g}, ${b})`;
+  if (!(stepMs >= 100 && stepMs <= 3000) || !(discardMs >= 0 && discardMs < stepMs)) return;
+  if (!localStream || !media.cam) {
+    reply({ type: 'check-error', reason: 'camera_off' });
+    return;
+  }
+  const g = {
+    sess: S,
+    hostPeerId,
+    runId,
+    seq,
+    stepMs,
+    discardMs,
+    align: mergeAlign(msg.align),
+    phase: 'loading',
+    done: false,
+    frames: [],
+    preFrames: [],
+    paintStarts: new Array(seq.length).fill(null),
+    okSince: null,
+    lastProgressAt: -Infinity,
+    lastPhaseSent: null,
+    timers: [],
+    detectMs: [],
+    loop: null,
+    raf: 0,
+    receivedAt: performance.now(),
   };
-  const finish = () => {
-    flashEl.classList.remove('on');
-    if (sess.flashing === handle) sess.flashing = null;
-  };
-  const handle = {
-    cancel() {
-      cancelled = true;
-      cancelAnimationFrame(raf);
-      finish();
+  S.gcheck = g;
+  showAlignOverlay();
+  if (face.ready) {
+    startGuestAlign(g); // 모델이 이미 준비됨 → "준비 중…" 없이 바로 맞추기
+    return;
+  }
+  renderAlign('loading', null);
+  guestProgress(g, { phase: 'loading' });
+  ensureFaceModel().then(
+    () => {
+      if (!g.done && S === g.sess) startGuestAlign(g);
     },
-  };
-  sess.flashing = handle;
+    () => {
+      if (!g.done) guestFail(g, 'model_failed');
+    },
+  );
+}
 
+function onCheckCancel(msg) {
+  const g = S.gcheck;
+  if (!g || g.done || msg.runId !== g.runId) return;
+  if (g.phase !== 'loading' && g.phase !== 'align') return; // 플래시 중에는 의미 없음
+  stopGuestCheck(g);
+}
+
+function guestProgress(g, fields) {
+  const now = performance.now();
+  const phaseChanged = fields.phase !== g.lastPhaseSent;
+  if (!phaseChanged && now - g.lastProgressAt < GUEST_PROGRESS_MIN_MS) return;
+  g.lastProgressAt = now;
+  g.lastPhaseSent = fields.phase;
+  g.sess.mesh.send(g.hostPeerId, { type: 'check-progress', runId: g.runId, ...fields });
+}
+
+function startGuestAlign(g) {
+  g.phase = 'align';
+  g.alignStartedAt = performance.now();
+  renderAlign('no_face', null);
+  guestProgress(g, { phase: 'align', hint: 'no_face', size: null });
+  g.alignTimer = setTimeout(() => guestFail(g, 'align_timeout'), g.align.timeoutMs);
+  g.timers.push(g.alignTimer);
+  startGuestSampling(g);
+}
+
+function startGuestSampling(g) {
+  const video = alignVideo;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const hasRVFC = typeof video.requestVideoFrameCallback === 'function';
+  let lastTime = -1;
+  const step = (_now, meta) => {
+    if (g.done) return;
+    try {
+      if (video.readyState >= 2 && video.videoWidth && (hasRVFC || video.currentTime !== lastTime)) {
+        lastTime = video.currentTime;
+        guestSampleFrame(g, video, canvas, ctx, meta);
+      }
+    } catch (e) {
+      console.warn('프레임 처리 실패', e);
+    }
+    schedule();
+  };
+  const schedule = () => {
+    if (g.done) return;
+    if (hasRVFC) g.loop = { kind: 'rvfc', id: video.requestVideoFrameCallback(step) };
+    else g.loop = { kind: 'raf', id: requestAnimationFrame(step) };
+  };
+  g.stopLoop = () => {
+    if (!g.loop) return;
+    if (g.loop.kind === 'rvfc') video.cancelVideoFrameCallback(g.loop.id);
+    else cancelAnimationFrame(g.loop.id);
+    g.loop = null;
+  };
+  schedule();
+}
+
+function guestSampleFrame(g, video, canvas, ctx, meta) {
+  const cbNow = performance.now();
+  const t = meta && typeof meta.captureTime === 'number' && meta.captureTime > 0 ? meta.captureTime : cbNow;
+  const W = video.videoWidth;
+  const H = video.videoHeight;
+  if (canvas.width !== W || canvas.height !== H) {
+    canvas.width = W;
+    canvas.height = H;
+  }
+  ctx.drawImage(video, 0, 0, W, H);
+  const d0 = performance.now();
+  const res = face.lm.detectForVideo(canvas, nextTs());
+  g.detectMs.push(performance.now() - d0);
+  const lm = res && res.faceLandmarks && res.faceLandmarks[0] ? res.faceLandmarks[0] : null;
+  const a = faceAlignment(lm, W, H, g.align);
+  let rgb = null;
+  if (lm) {
+    const img = ctx.getImageData(0, 0, W, H);
+    rgb = faceMeanRgb({ data: img.data, width: W, height: H }, lm);
+  }
+
+  if (g.phase === 'align') {
+    // 플래시 직전 ~1초를 series에 넣으려고 맞추기 단계 프레임도 최근 2초만 남긴다 (판정에는 쓰지 않음)
+    if (lm) {
+      g.preFrames.push({ t, face: rgb, size: a.size });
+      while (g.preFrames.length && t - g.preFrames[0].t > 2000) g.preFrames.shift();
+    }
+    renderAlign(a.hint, a.size);
+    if (a.aligned) {
+      if (g.okSince == null) g.okSince = cbNow;
+    } else {
+      g.okSince = null;
+    }
+    guestProgress(g, { phase: 'align', hint: a.hint, size: a.size == null ? null : Math.round(a.size * 1000) / 1000 });
+    if (g.okSince != null && cbNow - g.okSince >= g.align.holdMs) beginGuestFlash(g);
+    return;
+  }
+  // flash / tail
+  g.frames.push({ t, face: rgb, size: a.size });
+}
+
+function beginGuestFlash(g) {
+  clearTimeout(g.alignTimer);
+  g.phase = 'flash';
+  g.flashBeganAt = performance.now();
+  const { seq, stepMs } = g;
   let t0 = null;
   let cur = -1;
   const tick = (now) => {
-    if (cancelled || S !== sess) return;
+    if (g.done || S !== g.sess) return;
     if (t0 == null) t0 = now;
     const idx = Math.floor((now - t0) / stepMs);
     if (idx >= seq.length) {
-      finish();
-      sess.mesh.send(hostPeerId, { type: 'flash-end', runId });
+      flashEl.classList.remove('on');
+      g.phase = 'tail';
+      g.timers.push(setTimeout(() => finishGuestCheck(g), GUEST_TAIL_MS));
       return;
     }
     if (idx !== cur) {
       cur = idx;
-      paint(seq[idx]);
+      const [r, gg, b] = FLASH_RGB[seq[idx]];
+      flashEl.style.background = `rgb(${r}, ${gg}, ${b})`;
       if (idx === 0) flashEl.classList.add('on');
       const i = idx;
-      // 칠한 프레임이 화면에 나간 뒤(다음 프레임)에 알린다
-      requestAnimationFrame(() => {
-        if (cancelled || S !== sess) return;
-        sess.mesh.send(hostPeerId, { type: 'flash-step', runId, i, color: seq[i] });
+      // 칠한 다음 rAF 시각 = 그 색이 화면에 나간 시각 → 구간 시작
+      requestAnimationFrame((paintedAt) => {
+        if (g.done || S !== g.sess) return;
+        if (g.paintStarts[i] == null) g.paintStarts[i] = paintedAt;
+        guestProgress(g, { phase: 'flash', i });
       });
     }
-    raf = requestAnimationFrame(tick);
+    g.raf = requestAnimationFrame(tick);
   };
-  raf = requestAnimationFrame(tick);
+  g.raf = requestAnimationFrame(tick);
+}
+
+function finishGuestCheck(g) {
+  if (g.done) return;
+  stopGuestCheck(g);
+  const means = bucketFrames(g.frames, g.paintStarts, { stepMs: g.stepMs, discardMs: g.discardMs });
+  const flashSizeMedian = median(g.frames.map((f) => f.size));
+  const base = g.paintStarts[0] ?? g.flashBeganAt;
+  const r1 = (v) => Math.round(v * 10) / 10;
+  const r2 = (v) => Math.round(v * 100) / 100;
+  const r4 = (v) => Math.round(v * 10000) / 10000;
+  const pre = g.preFrames.filter((f) => f.t >= base - 1000);
+  const series = [...pre, ...g.frames].map((f) => ({
+    t: Math.round(f.t - base),
+    c: f.face ? chroma(f.face).map(r4) : null,
+    rgb: f.face ? f.face.map(r1) : null,
+    size: f.size == null ? null : Math.round(f.size * 1000) / 1000,
+  }));
+  const result = {
+    type: 'check-result',
+    runId: g.runId,
+    seq: g.seq,
+    means: means.map((m) => (m ? m.map(r2) : null)),
+    flashSizeMedian: flashSizeMedian == null ? null : Math.round(flashSizeMedian * 1000) / 1000,
+    framesWithFace: g.frames.filter((f) => f.face).length,
+    frames: g.frames.length,
+    detectMsAvg: g.detectMs.length ? Math.round(g.detectMs.reduce((x, y) => x + y, 0) / g.detectMs.length) : null,
+    delegate: face.delegate,
+    stepStartsRel0: g.paintStarts.map((p) => (p == null || g.paintStarts[0] == null ? null : Math.round(p - g.paintStarts[0]))),
+    series,
+  };
+  g.sess.mesh.send(g.hostPeerId, result);
+  // 참여자 쪽 진단 (콘솔): 구간 시작 절대 시각 포함
+  window.__lastGuestCheck = { ...result, paintStarts: g.paintStarts, flashBeganAt: g.flashBeganAt, receivedAt: g.receivedAt };
+  console.info('[참여자 측정]', window.__lastGuestCheck);
+}
+
+// 참여자 측정 중단 (메시지 없음): 오버레이·플래시 정리
+function stopGuestCheck(g) {
+  if (g.done) return;
+  g.done = true;
+  for (const t of g.timers) clearTimeout(t);
+  g.timers = [];
+  cancelAnimationFrame(g.raf);
+  if (g.stopLoop) g.stopLoop();
+  flashEl.classList.remove('on');
+  closeAlign();
+}
+
+function guestFail(g, reason) {
+  if (g.done) return;
+  stopGuestCheck(g);
+  g.sess.mesh.send(g.hostPeerId, { type: 'check-error', runId: g.runId, reason });
+  console.info('[참여자 측정 실패]', reason);
 }
 
 // ---------- 호스트: 선택 ----------
@@ -730,24 +910,23 @@ function renderHostUi() {
   const running = Boolean(S.check && !S.check.done);
   const sel = S.selected ? S.peers.get(S.selected) : null;
   const open = sel ? S.mesh.isOpen(sel.peerId) : false;
-  // v1.1: 판정 중에는 "판정 취소" (맞추기 단계에서만 누를 수 있음)
-  judgeBtn.textContent = running ? '판정 취소' : '딥페이크 판정';
+  // 판정 중에는 "판정 취소" (플래시 단계에서는 누를 수 없음)
+  judgeBtn.textContent = running ? 'Cancel check' : 'Deepfake check';
   judgeBtn.classList.toggle('cancel', running);
-  judgeBtn.disabled = running ? S.check.phase !== 'align' : !sel || !face.ready || !open;
+  judgeBtn.disabled = running ? S.check.phase === 'flash' : !sel || !open;
   const others = [...S.peers.values()].filter((p) => !p.self);
   let text;
-  if (running && S.check.phase === 'align') text = `${S.check.pv.name}${subjectJosa(S.check.pv.name)} 얼굴을 맞추는 중입니다`;
-  else if (running) text = '판정 중…';
-  else if (face.error) text = '얼굴 인식 모델을 불러오지 못했습니다 · 인터넷 연결을 확인하고 새로고침해 주세요';
-  else if (others.length === 0) text = '참여자를 기다리는 중입니다 · 초대 주소를 공유하세요';
-  else if (!sel) text = '판정할 참여자 화면을 클릭하세요';
-  else if (!face.ready) text = `${sel.name} 선택됨 · 얼굴 인식 모델 불러오는 중…`;
-  else if (!open) text = `${sel.name} 선택됨 · 연결 중…`;
-  else text = `${sel.name} 선택됨 · 판정을 누르면 ${sel.name} 화면에 얼굴 맞추기 윤곽선이 뜹니다`;
+  if (running && S.check.phase === 'align') text = `${S.check.pv.name} is lining up with the outline`;
+  else if (running && S.check.phase === 'flash') text = 'Checking…';
+  else if (running) text = `Preparing face detection on ${S.check.pv.name}'s device`;
+  else if (others.length === 0) text = 'Waiting for participants · Share the invite link';
+  else if (!sel) text = 'Click the participant you want to check';
+  else if (!open) text = `${sel.name} selected · Connecting…`;
+  else text = `${sel.name} selected · Press Deepfake check to show the alignment outline on ${sel.name}'s screen`;
   hint.textContent = text;
 }
 
-// ---------- 호스트: 얼굴 모델 ----------
+// ---------- 참여자: 얼굴 모델 (입장 시 미리 불러오고 워밍업) ----------
 const face = { lm: null, ready: false, error: null, promise: null, lastTs: 0, delegate: null };
 
 async function createWithFallback(Cls, vision, options) {
@@ -780,8 +959,8 @@ function ensureFaceModel() {
         runningMode: 'VIDEO',
         numFaces: 1,
       });
-      // 첫 추론은 셰이더 컴파일 등으로 오래 걸린다 → 판정 중 메인 스레드가 막혀 flash-step 수신 시각이
-      // 밀리지 않도록 버튼을 켜기 전에 한 번 미리 돌려 둔다
+      // 첫 추론은 셰이더 컴파일 등으로 오래 걸린다 → 측정 중 메인 스레드가 막혀 플래시 칠하기·프레임 샘플링이
+      // 밀리지 않도록 입장 직후 미리 두 번 돌려 둔다
       const warm = document.createElement('canvas');
       warm.width = 640;
       warm.height = 480;
@@ -813,279 +992,175 @@ function nextTs() {
 }
 
 // ---------- 호스트: 판정 ----------
+// ---------- 호스트: 판정 ----------
 function newRunId() {
   const a = new Uint8Array(8);
   crypto.getRandomValues(a);
   return [...a].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// 이름 끝 글자 받침 유무로 주격 조사 (민지가 / 준형이)
-function subjectJosa(name) {
-  const c = String(name || '').trim().slice(-1).charCodeAt(0);
-  if (c >= 0xac00 && c <= 0xd7a3) return (c - 0xac00) % 28 ? '이' : '가';
-  return '가';
-}
+const GUEST_ERROR_TEXT = {
+  model_failed: "Face detection couldn't load on the participant's device",
+  camera_off: "The participant's camera is off",
+  busy: 'The participant is already in another check',
+};
 
 function onJudge() {
   if (!S || S.role !== 'host') return;
   if (S.check && !S.check.done) {
-    if (S.check.phase === 'align') cancelCheck();
+    if (S.check.phase !== 'flash') cancelCheck();
     return;
   }
-  if (!S.selected || !face.ready) return;
+  if (!S.selected) return;
   const pv = S.peers.get(S.selected);
-  if (!pv) return;
+  if (!pv || !S.mesh.isOpen(pv.peerId)) return;
   const { stepMs, discardMs } = CALL_FLASH;
+  const seq = makeFlashSequence();
   const check = {
     sess: S,
     runId: newRunId(),
     peerId: pv.peerId,
     pv,
-    phase: 'align',
-    seq: null,
+    phase: 'starting',
+    seq,
     stepMs,
     discardMs,
     minDelta,
-    frames: [],
-    detectMs: [],
-    stepStarts: null,
-    alignStartedAt: performance.now(),
-    alignedAt: null,
-    okSince: null,
-    lastStatusAt: -Infinity,
-    alignLog: [],
-    startedAt: null,
+    sentAt: performance.now(),
+    progressLog: [],
     done: false,
     timers: [],
-    loop: null,
-    canvas: null,
-    ctx: null,
   };
-  const sent = S.mesh.send(pv.peerId, { type: 'align-start', runId: check.runId });
+  const sent = S.mesh.send(pv.peerId, { type: 'check-start', runId: check.runId, seq, stepMs, discardMs, align: ALIGN });
   S.check = check;
-  renderAligning(check, null);
+  renderLoading(check);
   renderHostUi();
   if (!sent) {
-    failCheck('연결이 아직 준비되지 않았습니다');
+    failCheck('The connection is not ready yet');
     return;
   }
-  check.alignTimeout = setTimeout(
-    () => failCheck(`${ALIGN.timeoutMs / 1000}초 안에 얼굴을 맞추지 못했습니다`, ALIGN_FAIL_LABEL),
-    ALIGN.timeoutMs,
+  check.timers.push(setTimeout(() => failCheck('No response in time'), ALIGN.timeoutMs + seq.length * stepMs + 10000));
+}
+
+function currentCheckFor(peerId, msg) {
+  const check = S && S.check;
+  if (!check || check.done || check.peerId !== peerId || !msg || msg.runId !== check.runId) return null;
+  return check;
+}
+
+function onCheckProgress(peerId, msg) {
+  const check = currentCheckFor(peerId, msg);
+  if (!check) return;
+  const prevPhase = check.phase;
+  check.progressLog.push({ t: Math.round(performance.now() - check.sentAt), phase: msg.phase, hint: msg.hint, size: msg.size, i: msg.i });
+  if (msg.phase === 'loading') {
+    check.phase = 'loading';
+    renderLoading(check);
+  } else if (msg.phase === 'align') {
+    check.phase = 'align';
+    renderAligning(check, { size: typeof msg.size === 'number' ? msg.size : null });
+  } else if (msg.phase === 'flash') {
+    check.phase = 'flash';
+    const i = Number.isInteger(msg.i) && msg.i >= 0 && msg.i < check.seq.length ? msg.i : -1;
+    renderRunning(check, i);
+  }
+  if (check.phase !== prevPhase) renderHostUi();
+}
+
+function validMeans(means, n) {
+  return (
+    Array.isArray(means) &&
+    means.length === n &&
+    means.every((m) => m === null || (Array.isArray(m) && m.length === 3 && m.every((v) => typeof v === 'number' && Number.isFinite(v))))
   );
-  check.timers.push(check.alignTimeout);
-  startSampling(check);
 }
 
-// 맞추기 단계 → 플래시 단계
-function beginFlash(check) {
-  if (check.done || check.phase !== 'align') return;
-  clearTimeout(check.alignTimeout);
-  check.phase = 'flash';
-  check.alignedAt = performance.now();
-  check.seq = makeFlashSequence();
-  check.stepStarts = new Array(check.seq.length).fill(null);
-  check.startedAt = performance.now();
-  const sent = check.sess.mesh.send(check.peerId, {
-    type: 'flash-start',
+function onCheckResult(peerId, msg) {
+  const check = currentCheckFor(peerId, msg);
+  if (!check) return;
+  const sameSeq = Array.isArray(msg.seq) && msg.seq.length === check.seq.length && msg.seq.every((c, i) => c === check.seq[i]);
+  if (!sameSeq || !validMeans(msg.means, check.seq.length)) {
+    failCheck("Measurements don't match the request", ERROR_LABEL, msg);
+    return;
+  }
+  stopCheck(check);
+  const steps = buildFaceSteps(check.seq, msg.means);
+  const judge = judgeColorSteps(steps, { ...DEFAULTS, minDelta: check.minDelta });
+  let result = classifyResult(steps, judge);
+  const fsm = typeof msg.flashSizeMedian === 'number' && Number.isFinite(msg.flashSizeMedian) ? msg.flashSizeMedian : null;
+  if (fsm != null && fsm < ALIGN.sizeMin) result = { ...result, status: 'unmeasured', label: FAR_LABEL, far: true };
+  const debug = {
     runId: check.runId,
+    peer: check.pv.name,
     seq: check.seq,
-    stepMs: check.stepMs,
-  });
-  renderRunning(check, -1);
+    result,
+    judge,
+    steps,
+    minDelta: check.minDelta,
+    hostElapsedMs: Math.round(performance.now() - check.sentAt),
+    progressLog: check.progressLog,
+    guest: {
+      means: msg.means,
+      flashSizeMedian: fsm,
+      framesWithFace: msg.framesWithFace ?? null,
+      frames: msg.frames ?? null,
+      detectMsAvg: msg.detectMsAvg ?? null,
+      delegate: msg.delegate ?? null,
+      stepStartsRel0: msg.stepStartsRel0 ?? null,
+    },
+    series: Array.isArray(msg.series) ? msg.series : null,
+  };
+  console.info('[판정]', debug);
+  window.__lastCheck = debug;
+  renderResult(check, result, judge, null, fsm);
   renderHostUi();
-  if (!sent) {
-    failCheck('연결이 끊겼습니다');
-    return;
-  }
-  check.timeout = setTimeout(() => failCheck('응답 시간 초과'), check.seq.length * check.stepMs + 3000);
-  check.timers.push(check.timeout);
 }
 
-function startSampling(check) {
-  const video = check.pv.video;
-  const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  check.canvas = canvas;
-  check.ctx = ctx;
-  const hasRVFC = typeof video.requestVideoFrameCallback === 'function';
-  let lastTime = -1;
-
-  const step = () => {
-    if (check.done) return;
-    try {
-      sampleFrame(check, video, canvas, ctx, hasRVFC, lastTime);
-      lastTime = video.currentTime;
-    } catch (e) {
-      console.warn('프레임 처리 실패', e);
-    }
-    schedule();
-  };
-  const schedule = () => {
-    if (check.done) return;
-    if (hasRVFC) check.loop = { kind: 'rvfc', id: video.requestVideoFrameCallback(step) };
-    else check.loop = { kind: 'raf', id: requestAnimationFrame(step) };
-  };
-  check.stopLoop = () => {
-    if (!check.loop) return;
-    if (check.loop.kind === 'rvfc') video.cancelVideoFrameCallback(check.loop.id);
-    else cancelAnimationFrame(check.loop.id);
-    check.loop = null;
-  };
-  schedule();
-}
-
-function sampleFrame(check, video, canvas, ctx, hasRVFC, lastTime) {
-  if (video.readyState < 2 || !video.videoWidth) return;
-  if (!hasRVFC && video.currentTime === lastTime) return;
-  const t = performance.now();
-  const W = video.videoWidth;
-  const H = video.videoHeight;
-  if (canvas.width !== W || canvas.height !== H) {
-    canvas.width = W;
-    canvas.height = H;
+function onCheckError(peerId, msg) {
+  const check = currentCheckFor(peerId, msg);
+  if (!check) return;
+  if (msg.reason === 'align_timeout') {
+    failCheck(`Couldn't align within ${ALIGN.timeoutMs / 1000} s`, ALIGN_FAIL_LABEL, msg);
+  } else {
+    failCheck(GUEST_ERROR_TEXT[msg.reason] || 'Measurement error on the participant side', ERROR_LABEL, msg);
   }
-  ctx.drawImage(video, 0, 0, W, H);
-  const d0 = performance.now();
-  const res = face.lm.detectForVideo(canvas, nextTs());
-  check.detectMs.push(performance.now() - d0);
-  const lm = res && res.faceLandmarks && res.faceLandmarks[0] ? res.faceLandmarks[0] : null;
-  const a = faceAlignment(lm, W, H, ALIGN);
-
-  if (check.phase === 'align') {
-    check.alignLog.push({ t: Math.round(t - check.alignStartedAt), size: a.size, hint: a.hint });
-    if (a.aligned) {
-      if (check.okSince == null) check.okSince = t;
-    } else {
-      check.okSince = null;
-    }
-    const holdDone = check.okSince != null && t - check.okSince >= ALIGN.holdMs;
-    if (t - check.lastStatusAt >= ALIGN_STATUS_MIN_MS) {
-      check.lastStatusAt = t;
-      check.sess.mesh.send(check.peerId, {
-        type: 'align-status',
-        runId: check.runId,
-        hint: a.hint,
-        size: a.size == null ? null : Math.round(a.size * 1000) / 1000,
-      });
-      renderAligning(check, a);
-    }
-    if (holdDone) beginFlash(check);
-    return;
-  }
-
-  let rgb = null;
-  if (lm) {
-    const img = ctx.getImageData(0, 0, W, H);
-    rgb = faceMeanRgb({ data: img.data, width: W, height: H }, lm);
-  }
-  check.frames.push({ t, face: rgb, size: a.size });
-}
-
-function onFlashStep(peerId, msg) {
-  const check = S && S.check;
-  if (!check || check.done || check.phase !== 'flash' || check.peerId !== peerId || msg.runId !== check.runId) return;
-  const i = msg.i;
-  if (!Number.isInteger(i) || i < 0 || i >= check.seq.length || msg.color !== check.seq[i]) return;
-  if (check.stepStarts[i] == null) check.stepStarts[i] = performance.now();
-  renderRunning(check, i);
-}
-
-function onFlashEnd(peerId, msg) {
-  const check = S && S.check;
-  if (!check || check.done || check.phase !== 'flash' || check.peerId !== peerId || msg.runId !== check.runId || check.ending) return;
-  check.ending = true;
-  clearTimeout(check.timeout);
-  // 마지막 구간도 다 채우도록 stepMs 동안 프레임을 더 모은 뒤 계산
-  check.timers.push(setTimeout(() => finishCheck(check), check.stepMs));
 }
 
 function stopCheck(check) {
   check.done = true;
   for (const t of check.timers) clearTimeout(t);
   check.timers = [];
-  if (check.stopLoop) check.stopLoop();
 }
 
-function summarizeAlign(check) {
-  const sizes = check.alignLog.map((x) => x.size).filter((v) => v != null);
-  const r2 = (v) => (v == null ? null : Math.round(v * 100) / 100);
-  // 시계열은 약 250ms 간격으로 줄여 기록
-  const series = [];
-  let lastT = -Infinity;
-  for (const x of check.alignLog) {
-    if (x.t - lastT >= 250) {
-      series.push([x.t, r2(x.size), x.hint]);
-      lastT = x.t;
-    }
-  }
-  return {
-    startedAt: 0,
-    alignedAt: check.alignedAt == null ? null : Math.round(check.alignedAt - check.alignStartedAt),
-    frames: check.alignLog.length,
-    framesWithFace: sizes.length,
-    sizeMin: r2(sizes.length ? Math.min(...sizes) : null),
-    sizeMedian: r2(median(sizes)),
-    sizeMax: r2(sizes.length ? Math.max(...sizes) : null),
-    lastHint: check.alignLog.length ? check.alignLog[check.alignLog.length - 1].hint : null,
-    series,
-  };
-}
-
-function finishCheck(check) {
-  if (check.done) return;
+function failCheck(reason, label = ERROR_LABEL, guestMsg = null) {
+  const check = S && S.check;
+  if (!check || check.done) return;
+  // 참여자 쪽이 아직 맞추기 중일 수 있으면 닫으라고 알린다 (참여자는 맞추기 중에만 반응)
+  if (!guestMsg) check.sess.mesh.send(check.peerId, { type: 'check-cancel', runId: check.runId });
   stopCheck(check);
-  const means = bucketFrames(check.frames, check.stepStarts, { stepMs: check.stepMs, discardMs: check.discardMs });
-  const steps = buildFaceSteps(check.seq, means);
-  const judge = judgeColorSteps(steps, { ...DEFAULTS, minDelta: check.minDelta });
-  let result = classifyResult(steps, judge);
-  // v1.1: 플래시 중 얼굴 크기 중앙값이 기준 미만이면 측정 불가
-  const flashSizeMedian = median(check.frames.map((f) => f.size));
-  if (flashSizeMedian != null && flashSizeMedian < ALIGN.sizeMin) {
-    result = { ...result, status: 'unmeasured', label: FAR_LABEL, far: true };
-  }
-  const withFace = check.frames.filter((f) => f.face).length;
   const debug = {
     runId: check.runId,
     peer: check.pv.name,
     seq: check.seq,
-    stepStarts: check.stepStarts.map((s) => (s == null ? null : Math.round(s - check.startedAt))),
-    frames: check.frames.length,
-    detectMsAvg: check.detectMs.length ? Math.round(check.detectMs.reduce((a, b) => a + b, 0) / check.detectMs.length) : null,
-    delegate: face.delegate,
-    framesWithFace: withFace,
-    means,
-    steps,
-    judge,
-    result,
-    minDelta: check.minDelta,
-    align: { ...summarizeAlign(check), flashSizeMedian: flashSizeMedian == null ? null : Math.round(flashSizeMedian * 1000) / 1000 },
+    phase: check.phase,
+    reason,
+    guestError: guestMsg && guestMsg.type === 'check-error' ? guestMsg.reason : null,
+    hostElapsedMs: Math.round(performance.now() - check.sentAt),
+    progressLog: check.progressLog,
   };
-  console.info('[판정]', debug);
-  window.__lastCheck = debug;
-  renderResult(check, result, judge, null, flashSizeMedian);
-  renderHostUi();
-}
-
-function failCheck(reason, label = ERROR_LABEL) {
-  const check = S && S.check;
-  if (!check || check.done) return;
-  if (check.phase === 'align') check.sess.mesh.send(check.peerId, { type: 'align-cancel', runId: check.runId });
-  stopCheck(check);
-  const debug = { runId: check.runId, peer: check.pv.name, phase: check.phase, reason, align: summarizeAlign(check) };
   console.info('[판정 실패]', reason, debug);
   window.__lastCheck = debug;
   renderResult(check, { status: 'error', label, deltas: null }, null, reason);
   renderHostUi();
 }
 
-// 호스트가 맞추기 단계에서 "판정 취소": 결과 없이 원래대로
+// 호스트가 "판정 취소": 결과 없이 원래대로
 function cancelCheck() {
   const check = S && S.check;
-  if (!check || check.done || check.phase !== 'align') return;
-  check.sess.mesh.send(check.peerId, { type: 'align-cancel', runId: check.runId });
+  if (!check || check.done || check.phase === 'flash') return;
+  check.sess.mesh.send(check.peerId, { type: 'check-cancel', runId: check.runId });
   stopCheck(check);
-  console.info('[판정 취소]', { runId: check.runId, align: summarizeAlign(check) });
+  console.info('[판정 취소]', { runId: check.runId, phase: check.phase });
   check.pv.badge.className = 'badge';
   check.pv.badge.textContent = '';
   check.pv.detail.classList.remove('on');
@@ -1094,16 +1169,24 @@ function cancelCheck() {
 }
 
 // ---------- 호스트: 판정 표시 ----------
+function renderLoading(check) {
+  const { badge, detail } = check.pv;
+  detail.classList.remove('on');
+  detail.textContent = '';
+  badge.className = 'badge align';
+  badge.textContent = 'Preparing participant';
+}
+
 function renderAligning(check, a) {
   const { badge, detail } = check.pv;
   detail.classList.remove('on');
   detail.textContent = '';
   badge.className = 'badge align';
-  const pct = a && a.size != null ? `${Math.round(a.size * 100)}%` : '얼굴 없음';
-  badge.textContent = `얼굴 맞추는 중 · ${pct}`;
+  const pct = a && a.size != null ? `${Math.round(a.size * 100)}%` : 'No face';
+  badge.textContent = `Aligning face · ${pct}`;
   const sub = document.createElement('div');
   sub.className = 'sub';
-  sub.textContent = `${Math.round(ALIGN.sizeMin * 100)}% 이상 ${ALIGN.holdMs / 1000}초 유지되면 자동으로 플래시 시작 · ${ALIGN.timeoutMs / 1000}초 제한`;
+  sub.textContent = `Flash starts after ${Math.round(ALIGN.sizeMin * 100)}%+ for ${ALIGN.holdMs / 1000} s · ${ALIGN.timeoutMs / 1000} s limit`;
   badge.append(sub);
 }
 
@@ -1112,7 +1195,7 @@ function renderRunning(check, i) {
   detail.classList.remove('on');
   detail.textContent = '';
   badge.className = 'badge run';
-  badge.textContent = i < 0 ? '판정 중 · 시작하는 중' : `판정 중 ${i + 1}/${check.seq.length} · ${COLOR_KO[check.seq[i]]}`;
+  badge.textContent = i < 0 ? 'Checking · Starting' : `Checking ${i + 1}/${check.seq.length} · ${COLOR_LABEL[check.seq[i]]}`;
   const steps = document.createElement('div');
   steps.className = 'steps';
   check.seq.forEach((c, k) => {
@@ -1142,14 +1225,14 @@ function renderResult(check, result, judge, reason, flashSizeMedian) {
     return;
   }
   const d = result.deltas || {};
-  const line1 = `얼굴 반사 Δ · 빨강 ${fmtDelta(d.red)} · 초록 ${fmtDelta(d.green)} · 파랑 ${fmtDelta(d.blue)}`;
+  const line1 = `Face reflection Δ · Red ${fmtDelta(d.red)} · Green ${fmtDelta(d.green)} · Blue ${fmtDelta(d.blue)}`;
   let line2;
   const th = check.minDelta;
   if (result.far)
-    line2 = `플래시 중 얼굴 크기 ${Math.round(flashSizeMedian * 100)}% (기준 ${Math.round(ALIGN.sizeMin * 100)}%) · 화면에 더 가까이 와 주세요`;
-  else if (result.status === 'unmeasured') line2 = '얼굴이 화면에 잘 보이게 한 뒤 다시 시도해 주세요';
-  else if (judge && judge.matched === judge.total) line2 = `${judge.total}색 모두 기준(${th}) 이상`;
-  else if (judge) line2 = `${judge.total}색 중 ${judge.matched}색만 기준(${th}) 이상`;
+    line2 = `Face size during flash ${Math.round(flashSizeMedian * 100)}% (min ${Math.round(ALIGN.sizeMin * 100)}%) · Please move closer`;
+  else if (result.status === 'unmeasured') line2 = 'Keep your face clearly visible and try again';
+  else if (judge && judge.matched === judge.total) line2 = `All ${judge.total} colors at or above threshold (${th})`;
+  else if (judge) line2 = `Only ${judge.matched} of ${judge.total} colors at or above threshold (${th})`;
   detail.append(line1, document.createElement('br'), line2 || '');
   detail.classList.add('on');
 }
@@ -1267,6 +1350,26 @@ function callStatsWatch(sec = 10) {
   });
 }
 
+// 진단: 마지막 판정 기록을 클립보드로 (JSON 한 줄). 바이트 수를 돌려준다.
+window.__copyLastCheck = async () => {
+  const json = JSON.stringify(window.__lastCheck ?? null);
+  const bytes = new Blob([json]).size;
+  try {
+    await navigator.clipboard.writeText(json);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = json;
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try {
+      ok = document.execCommand('copy');
+    } catch {}
+    ta.remove();
+    if (!ok) console.warn('클립보드 복사 실패 — window.__lastCheck를 직접 확인하세요', e);
+  }
+  return bytes;
+};
 window.__callStats = () => callStats();
 window.__callStatsWatch = (sec = 10) => callStatsWatch(sec);
 
@@ -1304,8 +1407,8 @@ copyBtn.addEventListener('click', async (e) => {
     } catch {}
     ta.remove();
   }
-  copyBtn.textContent = ok ? '복사됨' : '복사 실패';
-  setTimeout(() => (copyBtn.textContent = '복사'), 1500);
+  copyBtn.textContent = ok ? 'Copied' : 'Copy failed';
+  setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
 });
 window.addEventListener('pagehide', () => {
   if (S) sendLeaveBeacon(S.room, S.peerId);

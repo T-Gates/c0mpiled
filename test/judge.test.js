@@ -675,7 +675,7 @@ describe('finalVerdict', () => {
     for (const s of r.reasons) {
       assert.equal(typeof s, 'string');
       assert.ok(s.length > 0, 'non-empty reason');
-      assert.match(s, /[가-힣]/, `reason should be Korean: ${s}`);
+      assert.ok(/[A-Za-z]/.test(s) && !/[가-힣]/.test(s), `reason should be English: ${s}`);
     }
   }
 

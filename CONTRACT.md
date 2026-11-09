@@ -249,3 +249,26 @@ export function diagnoseRound({ handSteps, faceSteps, quadSteps }, opts = DIAG_D
   - 5번: **H === null 이면 `'insufficient'`**(message "입체 측정 데이터 부족: 얼굴 미검출"), H ≤ minSwingH 이면 `'flat_object'`.
 - `weakColors`는 항상 배열(해당 없으면 `[]`).
 - opts는 부분 객체를 받으면 DIAG_DEFAULTS와 병합.
+
+## v1.6-en — 화면·판정 문구 영어화 (사용자 결정 2026-11-09, 영어 발표)
+
+사용자에게 보이는 모든 문구(`index.html`, `src/app.js`의 화면 텍스트, `src/judge.js`가 만드는 reasons·message)는 영어로 바꾼다. 코드 주석·콘솔 로그는 예외. `<html lang="en">`. 판정 로직·코드값(code, evidence)은 바꾸지 않는다.
+
+`judge.js` 문구 (테스트가 검사하는 부분은 정확히 이대로):
+- `finalVerdict` reasons
+  - `Hand pose task failed: ${names}`
+  - `Hand pose transition looked unnatural${detail ? `: ${detail}` : ''}`
+  - `Screen color reflection not confirmed on palm (${m})`
+  - `Screen color reflection not confirmed on face (${m})`
+  - `No 3D face response to light direction (H=${h}, threshold > ${thr})`
+- `diagnoseRound` message (code별)
+  - insufficient(검출 없음) `Not enough data: face/hand not detected`
+  - no_reflection `No reflection: possible virtual camera or recorded video`
+  - screen_blocked `Possible partial screen block: weak response in the ${QUAD_EN[q]} quadrant (−N%)` — `QUAD_EN = { TL:'top-left', TR:'top-right', BL:'bottom-left', BR:'bottom-right' }`
+  - color_tampered `Possible color tampering (filter/night mode): no response to ${weak.map(c => COLOR_EN[c]).join(' · ')}` — `COLOR_EN = { red:'red', green:'green', blue:'blue' }`
+  - weak_color `Weak color reflection: maximize screen brightness and reduce ambient light`
+  - insufficient(입체) `Not enough 3D data: face not detected`
+  - flat_object `Possible flat object: no 3D response to light direction`
+  - ok `Normal reflection`
+- `checkTransition` 등 나머지 문구도 같은 톤의 영어로.
+- 테스트의 "문구가 한국어인지" 검사는 "영어인지(라틴 문자 포함, 한글 없음)" 검사로 바꾼다.

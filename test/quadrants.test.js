@@ -351,7 +351,7 @@ describe('finalVerdict with quadFace', () => {
   });
   const quadOk = () => ({ passed: true, H: 0.811, V: 0.1, details: [] });
   const quadBad = () => ({ passed: false, H: 0.01, V: 0.1, details: [] });
-  const HANGUL = /[가-힣]/;
+  const ENGLISH = /^(?=.*[A-Za-z])[^가-힣]*$/;
 
   test('without quadFace: all-good → passed true, reasons []', () => {
     const r = finalVerdict(base());
@@ -380,14 +380,14 @@ describe('finalVerdict with quadFace', () => {
     assert.equal(r.reasons.length, without.reasons.length + 1);
     assert.equal(r.reasons.length, 1);
     assert.equal(typeof r.reasons[0], 'string');
-    assert.match(r.reasons[0], HANGUL);
+    assert.match(r.reasons[0], ENGLISH);
   });
 
   test('quadFace with H null (passed false) → passed false, one reason', () => {
     const r = finalVerdict({ ...base(), quadFace: { passed: false, H: null, V: null, details: [] } });
     assert.equal(r.passed, false);
     assert.equal(r.reasons.length, 1);
-    assert.match(r.reasons[0], HANGUL);
+    assert.match(r.reasons[0], ENGLISH);
   });
 
   test('quadFace failure adds exactly one reason on top of other failures', () => {

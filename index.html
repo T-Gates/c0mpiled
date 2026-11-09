@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -198,8 +198,8 @@
   <div id="preview">
     <video id="video" playsinline muted></video>
     <canvas id="overlay"></canvas>
-    <div id="lblFace" class="glbl">얼굴</div>
-    <div id="lblHand" class="glbl">손바닥</div>
+    <div id="lblFace" class="glbl">Face</div>
+    <div id="lblHand" class="glbl">Palm</div>
     <div id="perf"></div>
   </div>
 
@@ -210,27 +210,27 @@
     </div>
     <div class="detail" id="hudDetail"></div>
     <div class="ctrl">
-      <button id="nextBtn"><span id="nextLbl">다음</span><span class="kbd">Space</span></button>
-      <button id="restartBtn" class="ghost">처음부터</button>
+      <button id="nextBtn"><span id="nextLbl">Next</span><span class="kbd">Space</span></button>
+      <button id="restartBtn" class="ghost">Restart</button>
     </div>
     <div class="datarow" id="dataRow">
-      <span class="dlbl">데이터 수집</span>
-      <select id="labelSel" aria-label="데이터 라벨">
-        <option value="real" selected>실제 사람</option>
-        <option value="phone">휴대폰 화면</option>
-        <option value="obs">OBS 가상 카메라</option>
-        <option value="block">화면 가림</option>
+      <span class="dlbl">Dataset</span>
+      <select id="labelSel" aria-label="Data label">
+        <option value="real" selected>Real person</option>
+        <option value="phone">Phone screen</option>
+        <option value="obs">OBS virtual camera</option>
+        <option value="block">Screen blocked</option>
       </select>
       <span id="dataCounts"></span>
-      <button id="dlBtn" class="ghost" type="button">데이터 다운로드</button>
-      <button id="clearBtn" class="ghost" type="button">데이터 비우기</button>
-      <span id="calibStatus">기본 기준</span>
+      <button id="dlBtn" class="ghost" type="button">Download</button>
+      <button id="clearBtn" class="ghost" type="button">Clear</button>
+      <span id="calibStatus">Default thresholds</span>
     </div>
     <div id="hudVerdict"></div>
     <div id="hudScroll">
       <div id="hudLog"></div>
       <details>
-        <summary>원본 데이터(JSON)</summary>
+        <summary>Raw data (JSON)</summary>
         <pre id="rawJson"></pre>
       </details>
     </div>
@@ -241,17 +241,17 @@
 
     <section id="startScreen" class="card">
       <h1>Human Check</h1>
-      <p>웹캠으로 얼굴과 손을 함께 추적해 실제 사람인지 확인합니다. 무작위로 정해진 손 모양 3개를 차례로 만들고, 그동안 화면 색이 바뀌며 얼굴과 손바닥에 비치는 빛을 측정합니다.</p>
+      <p>Human Check tracks your face and hand through the webcam to confirm you are a real person. You will make three randomly chosen hand poses. During each one, the screen changes color and we measure the light reflected on your face and palm.</p>
       <ul class="guide">
-        <li>화면 밝기를 최대로 올려 주세요.</li>
-        <li>가능하면 어두운 곳에서, 화면 가까이(30~50cm)에 앉아 주세요.</li>
-        <li>손바닥이 화면(카메라) 쪽을 향하도록 들어 주세요. 미리보기의 타원·손 모양 가이드에 맞추면 됩니다.</li>
-        <li>시간 제한은 없습니다. "인식됨 ✓"을 확인하고 <b>다음</b>(또는 Space)을 눌러 진행하세요.</li>
+        <li>Turn screen brightness all the way up.</li>
+        <li>If possible, sit in a dim room, close to the screen (30–50 cm).</li>
+        <li>Hold your palm facing the screen (camera). Line up with the oval and hand guides in the preview.</li>
+        <li>There is no time limit. When you see "Recognized ✓", press <b>Next</b> (or Space) to continue.</li>
       </ul>
-      <div class="warn">화면 색이 0.5초 간격으로 바뀝니다 — 광과민성 주의</div>
+      <div class="warn">Photosensitivity warning: the screen changes color every 0.5 seconds.</div>
       <div class="row">
-        <button id="startBtn">시작</button>
-        <span class="status" id="loadStatus">모델 불러오는 중…</span>
+        <button id="startBtn">Start</button>
+        <span class="status" id="loadStatus">Loading models…</span>
       </div>
     </section>
 

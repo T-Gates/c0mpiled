@@ -88,11 +88,12 @@ function round({ colors, quads }) {
 }
 
 const HANGUL = /[가-힣]/;
+const LATIN = /[A-Za-z]/;
 
 function assertMessage(r) {
   assert.equal(typeof r.message, 'string');
   assert.ok(r.message.trim().length > 0, 'message must be non-empty');
-  assert.ok(HANGUL.test(r.message), `message should be Korean, got "${r.message}"`);
+  assert.ok(LATIN.test(r.message) && !HANGUL.test(r.message), `message should be English, got "${r.message}"`);
 }
 
 // v1.5 보정: weakColors is always an array ([] when none).
@@ -353,11 +354,11 @@ describe("diagnoseRound code 'screen_blocked'", () => {
     assert.equal(r.evidence.quadMin.quad, 'TL');
     approx(r.evidence.quadMin.ratio, 100 / 120, 1e-9);
     assertMessage(r);
-    assert.ok(r.message.includes('왼쪽 위'), `message should name 왼쪽 위: "${r.message}"`);
+    assert.ok(r.message.includes('top-left'), `message should name top-left: "${r.message}"`);
   });
 
-  const QUAD_KO = { TL: '왼쪽 위', TR: '오른쪽 위', BL: '왼쪽 아래', BR: '오른쪽 아래' };
-  for (const [q, ko] of Object.entries(QUAD_KO)) {
+  const QUAD_EN = { TL: 'top-left', TR: 'top-right', BL: 'bottom-left', BR: 'bottom-right' };
+  for (const [q, ko] of Object.entries(QUAD_EN)) {
     test(`blocked quadrant ${q} is reported as ${ko}`, () => {
       const lumas = { TL: 120, TR: 120, BL: 120, BR: 120, [q]: 100 };
       const r = diagnoseRound(round({ colors: colorSteps(), quads: quadSteps(lumas, 10) }));
@@ -414,17 +415,17 @@ describe("diagnoseRound code 'color_tampered'", () => {
     assert.ok(!r.evidence.weakColors.includes('red'));
     assert.ok(!r.evidence.weakColors.includes('green'));
     assertMessage(r);
-    assert.ok(r.message.includes('파랑'), `message should name 파랑: "${r.message}"`);
+    assert.ok(r.message.includes('blue'), `message should name blue: "${r.message}"`);
   });
 
-  test('weak red is reported as 빨강', () => {
+  test('weak red is reported as red', () => {
     const r = diagnoseRound(round({
       colors: colorSteps({ red: 0.001, green: 0.03, blue: 0.03 }),
       quads: quadSteps(BALANCED, 10),
     }));
     assert.equal(r.code, 'color_tampered');
     assert.deepEqual([...r.evidence.weakColors], ['red']);
-    assert.ok(r.message.includes('빨강'));
+    assert.ok(r.message.includes('red'));
   });
 
   test('null colors are not counted as weak', () => {

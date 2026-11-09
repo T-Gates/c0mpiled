@@ -167,13 +167,13 @@ export function checkTransition(frames, opts = DEFAULTS) {
 
   let reason = null;
   if (nonNull < 2) {
-    reason = '전환 구간에서 손이 거의 검출되지 않았습니다';
+    reason = 'Hand was barely detected during the transition';
   } else if (maxGap > o.maxGapMs) {
-    reason = `손이 ${Math.round(maxGap)}ms 동안 사라졌습니다 (허용 ${o.maxGapMs}ms)`;
+    reason = `Hand disappeared for ${Math.round(maxGap)}ms (allowed ${o.maxGapMs}ms)`;
   } else if (maxJump > o.maxLandmarkJump) {
-    reason = `손 위치가 비정상적으로 순간 이동했습니다 (${maxJump.toFixed(2)} > ${o.maxLandmarkJump})`;
+    reason = `Hand position jumped abruptly (${maxJump.toFixed(2)} > ${o.maxLandmarkJump})`;
   } else if (maxAngleJump > o.maxAngleJumpDeg) {
-    reason = `손가락 각도가 한 프레임에 ${Math.round(maxAngleJump)}° 변했습니다 (허용 ${o.maxAngleJumpDeg}°)`;
+    reason = `Finger angle changed ${Math.round(maxAngleJump)}° in one frame (allowed ${o.maxAngleJumpDeg}°)`;
   }
   return { ok: reason === null, reason, maxGapMs: maxGap, maxJump, maxAngleJump };
 }
@@ -222,25 +222,25 @@ export function finalVerdict({ poses, transitions, colorHand, colorFace, quadFac
   const reasons = [];
   const failedPoses = (poses || []).filter((p) => !p.matched);
   if (failedPoses.length > 0) {
-    reasons.push(`손 모양 과제 실패: ${failedPoses.map((p) => p.name).join(', ')}`);
+    reasons.push(`Hand pose task failed: ${failedPoses.map((p) => p.name).join(', ')}`);
   }
   const failedTr = (transitions || []).filter((t) => !t.ok);
   if (failedTr.length > 0) {
     const detail = failedTr.map((t) => t.reason).filter(Boolean).join(' / ');
-    reasons.push(`손 모양 전환이 자연스럽지 않음${detail ? `: ${detail}` : ''}`);
+    reasons.push(`Hand pose transition looked unnatural${detail ? `: ${detail}` : ''}`);
   }
   if (!colorHand || !colorHand.passed) {
     const m = colorHand ? `${colorHand.matched}/${colorHand.total}` : '0/0';
-    reasons.push(`손바닥에서 화면 색 반사가 충분히 확인되지 않음 (${m})`);
+    reasons.push(`Screen color reflection not confirmed on palm (${m})`);
   }
   if (!colorFace || !colorFace.passed) {
     const m = colorFace ? `${colorFace.matched}/${colorFace.total}` : '0/0';
-    reasons.push(`얼굴에서 화면 색 반사가 충분히 확인되지 않음 (${m})`);
+    reasons.push(`Screen color reflection not confirmed on face (${m})`);
   }
   if (quadFace && !quadFace.passed) {
-    const h = quadFace.H == null ? '측정 불가' : quadFace.H.toFixed(3);
+    const h = quadFace.H == null ? 'n/a' : quadFace.H.toFixed(3);
     const thr = Number.isFinite(quadFace.threshold) ? quadFace.threshold : QUAD_DEFAULTS.minSwingH;
-    reasons.push(`빛 방향에 따른 얼굴 입체 반응이 확인되지 않음 (H=${h}, 기준 > ${thr})`);
+    reasons.push(`No 3D face response to light direction (H=${h}, threshold > ${thr})`);
   }
   return { passed: reasons.length === 0, reasons };
 }
@@ -319,8 +319,8 @@ export const DIAG_DEFAULTS = {
 
 const DIAG_COLORS = ['red', 'green', 'blue'];
 const DIAG_QUADS = ['TL', 'TR', 'BL', 'BR'];
-const COLOR_KO = { red: '빨강', green: '초록', blue: '파랑' };
-const QUAD_KO = { TL: '왼쪽 위', TR: '오른쪽 위', BL: '왼쪽 아래', BR: '오른쪽 아래' };
+const COLOR_EN = { red: 'red', green: 'green', blue: 'blue' };
+const QUAD_EN = { TL: 'top-left', TR: 'top-right', BL: 'bottom-left', BR: 'bottom-right' };
 
 const posNum = (v) => typeof v === 'number' && v > 0;
 
@@ -368,28 +368,28 @@ export function diagnoseRound({ handSteps, faceSteps, quadSteps } = {}, opts = D
   let message;
   if (strengths.length === 0 && lumaVals.every((v) => v === null)) {
     code = 'insufficient';
-    message = '측정 데이터 부족: 얼굴/손 미검출';
+    message = 'Not enough data: face/hand not detected';
   } else if ((maxStrength === null || maxStrength <= o.minDelta) && (quadSpread === null || quadSpread < o.quadSpreadMin)) {
     code = 'no_reflection';
-    message = '반사 없음: 가상 카메라·녹화 영상 의심';
+    message = 'No reflection: possible virtual camera or recorded video';
   } else if (quadMin !== null && quadMin.ratio < 1 - o.blockDrop) {
     code = 'screen_blocked';
-    message = `화면 일부 가림 의심: ${QUAD_KO[quadMin.quad]} 사분면 반응 약함 (−${Math.round((1 - quadMin.ratio) * 100)}%)`;
+    message = `Possible partial screen block: weak response in the ${QUAD_EN[quadMin.quad]} quadrant (−${Math.round((1 - quadMin.ratio) * 100)}%)`;
   } else if (maxStrength !== null && maxStrength >= o.minDelta * o.skewFactor && weakColors.length > 0) {
     code = 'color_tampered';
-    message = `화면 색 변조 의심(필터·야간 모드): ${weakColors.map((c) => COLOR_KO[c]).join('·')} 반응 없음`;
+    message = `Possible color tampering (filter/night mode): no response to ${weakColors.map((c) => COLOR_EN[c]).join(' · ')}`;
   } else if (maxStrength !== null && maxStrength <= o.minDelta) {
     code = 'weak_color';
-    message = '색 반사 약함: 화면 밝기 최대·주변 조명 줄이기 확인';
+    message = 'Weak color reflection: maximize screen brightness and reduce ambient light';
   } else if (H === null) {
     code = 'insufficient';
-    message = '입체 측정 데이터 부족: 얼굴 미검출';
+    message = 'Not enough 3D data: face not detected';
   } else if (H <= o.minSwingH) {
     code = 'flat_object';
-    message = '평면 물체 의심: 빛 방향에 따른 입체 반응 없음';
+    message = 'Possible flat object: no 3D response to light direction';
   } else {
     code = 'ok';
-    message = '정상 반사';
+    message = 'Normal reflection';
   }
 
   return { code, message, evidence: { colorStrength, quadLuma, quadSpread, quadMin, H, weakColors } };

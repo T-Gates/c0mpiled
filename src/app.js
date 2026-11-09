@@ -39,25 +39,25 @@ const COLOR_RGB = {
   green: [0, 255, 0],
   blue: [0, 0, 255],
 };
-const COLOR_KO = { white: '흰색', red: '빨강', green: '초록', blue: '파랑' };
+const COLOR_EN = { white: 'White', red: 'Red', green: 'Green', blue: 'Blue' };
 const CHANNEL_KO = { red: 'R', green: 'G', blue: 'B' };
 const CHANNEL_IDX = { red: 0, green: 1, blue: 2 };
-const POSE_KO = {
-  open: '보 (다섯 손가락 모두 펴기)',
-  fist: '주먹',
-  point: '검지만 펴기',
-  peace: '브이 (검지·중지)',
-  three: '셋 (검지·중지·약지)',
-  rock: '락 (검지·새끼)',
+const POSE_EN = {
+  open: 'Open hand (all five fingers)',
+  fist: 'Fist',
+  point: 'Index finger only',
+  peace: 'Peace (index + middle)',
+  three: 'Three (index, middle, ring)',
+  rock: 'Rock (index + pinky)',
 };
-const FINGER_KO = ['엄지', '검지', '중지', '약지', '소지'];
+const FINGER_EN = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'];
 const PALM_IDX = [0, 1, 5, 9, 13, 17];
 const FACE_ROI_IDX = [50, 280, 151];
 const FACE_ROI_RADIUS = 0.06;
 // v1.3 입체 단계: 2×2 사분면 중 하나만 흰색, 4개 셔플 × 2회, 각 STEP_MS
 const QUADS = ['TL', 'TR', 'BL', 'BR'];
 const QUAD_REPEAT = 2;
-const QUAD_KO = { TL: '왼쪽 위', TR: '오른쪽 위', BL: '왼쪽 아래', BR: '오른쪽 아래' };
+const QUAD_EN = { TL: 'top-left', TR: 'top-right', BL: 'bottom-left', BR: 'bottom-right' };
 const QUAD_LM = { cheekA: 50, cheekB: 280, T: 151, B: 152 };
 const HAND_CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4],
@@ -154,7 +154,7 @@ async function createWithFallback(Cls, vision, options, key) {
 }
 
 async function loadModels() {
-  loadStatus.textContent = '모델 불러오는 중…';
+  loadStatus.textContent = 'Loading models…';
   const vision = await FilesetResolver.forVisionTasks(WASM_PATH);
   [handLm, faceLm] = await Promise.all([
     createWithFallback(
@@ -170,14 +170,14 @@ async function loadModels() {
       'face',
     ),
   ]);
-  loadStatus.textContent = `모델 준비 완료 (손: ${delegates.hand}, 얼굴: ${delegates.face})`;
+  loadStatus.textContent = `Models ready (hand: ${delegates.hand}, face: ${delegates.face})`;
 }
 
 function ensureModels() {
   if (!modelsPromise) {
     modelsPromise = loadModels().catch((e) => {
       modelsPromise = null; // 다음 시도에서 재시도
-      loadStatus.textContent = '모델 불러오기 실패';
+      loadStatus.textContent = 'Failed to load models';
       throw e;
     });
   }
@@ -190,7 +190,7 @@ let stream = null;
 async function ensureCamera() {
   if (stream && stream.getVideoTracks().some((t) => t.readyState === 'live')) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error('이 브라우저에서는 카메라를 사용할 수 없습니다. http://localhost 또는 https 주소로 열어 주세요.');
+    throw new Error('Camera is not available in this browser. Open this page via http://localhost or https.');
   }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -199,15 +199,15 @@ async function ensureCamera() {
     });
   } catch (e) {
     if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
-      throw new Error('카메라 권한이 거부되었습니다. 브라우저 주소창의 카메라 권한을 허용한 뒤 다시 시도해 주세요.');
+      throw new Error('Camera permission was denied. Allow camera access in the browser address bar and try again.');
     }
     if (e && (e.name === 'NotFoundError' || e.name === 'OverconstrainedError')) {
-      throw new Error('사용할 수 있는 카메라를 찾지 못했습니다.');
+      throw new Error('No camera was found.');
     }
     if (e && e.name === 'NotReadableError') {
-      throw new Error('카메라를 열 수 없습니다. 다른 앱이 카메라를 사용 중인지 확인해 주세요.');
+      throw new Error('Could not open the camera. Check whether another app is using it.');
     }
-    throw new Error(`카메라 시작 실패: ${e && e.message ? e.message : e}`);
+    throw new Error(`Failed to start camera: ${e && e.message ? e.message : e}`);
   }
   video.srcObject = stream;
   await video.play();
@@ -226,8 +226,8 @@ const diagOpts = () => ({ minDelta: TH.minDelta, minSwingH: TH.minSwingH }); // 
 
 function renderCalibStatus() {
   calibStatus.textContent = TH.calibrated
-    ? `보정 기준 적용됨: minDelta=${TH.minDelta}, minSwingH=${TH.minSwingH}`
-    : '기본 기준';
+    ? `Calibrated thresholds: minDelta=${TH.minDelta}, minSwingH=${TH.minSwingH}`
+    : 'Default thresholds';
   calibStatus.classList.toggle('on', TH.calibrated);
 }
 
@@ -279,7 +279,7 @@ function saveDataset() {
 function renderCounts() {
   const n = { real: 0, phone: 0, obs: 0, block: 0 };
   for (const r of dataset) if (r && n[r.label] !== undefined) n[r.label]++;
-  dataCounts.textContent = `실제 ${n.real} · 휴대폰 ${n.phone} · OBS ${n.obs} · 가림 ${n.block}`;
+  dataCounts.textContent = `Real ${n.real} · Phone ${n.phone} · OBS ${n.obs} · Blocked ${n.block}`;
 }
 function currentLabel() {
   return LABELS.includes(labelSel.value) ? labelSel.value : 'real';
@@ -325,7 +325,7 @@ function downloadDataset() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function clearDataset() {
-  if (!confirm(`수집한 데이터 ${dataset.length}건을 모두 지울까요? (되돌릴 수 없습니다)`)) return;
+  if (!confirm(`Delete all ${dataset.length} collected records? This cannot be undone.`)) return;
   dataset = [];
   try {
     localStorage.removeItem(DATASET_KEY);
@@ -412,7 +412,7 @@ async function startRun() {
   clearError();
   startBtn.disabled = true;
   try {
-    loadStatus.textContent = '카메라와 모델 준비 중…';
+    loadStatus.textContent = 'Preparing camera and models…';
     await Promise.all([ensureModels(), ensureCamera()]);
   } catch (e) {
     console.error(e);
@@ -507,10 +507,10 @@ function endColor(t) {
   pose.done = true;
   if (!pose.latched) {
     pose.failStage = 'pose';
-    pose.failReason = '인식(0.5초 유지) 전에 다음으로 진행';
+    pose.failReason = 'Moved on before the pose was recognized (0.5s hold)';
   } else if (!held) {
     pose.failStage = 'color';
-    pose.failReason = `색 측정 중 손 모양 유지 실패 (불일치 ${Math.round(missRatio * 100)}%)`;
+    pose.failReason = `Pose not held during color check (${Math.round(missRatio * 100)}% mismatch)`;
   }
 
   const stepsOut = [];
@@ -712,7 +712,7 @@ function onFrame() {
   } catch (e) {
     console.error(e);
     stopLoop();
-    showError(`추적 중 오류가 발생했습니다: ${e && e.message ? e.message : e}`);
+    showError(`Tracking error: ${e && e.message ? e.message : e}`);
     hud.classList.remove('show');
     bg.classList.remove('dark');
     bg.style.background = '';
@@ -1181,10 +1181,10 @@ function drawOverlay(hand, face) {
 
 // ---------- HUD ----------
 const ANGLE_KEYS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
-const ALIGN_HINT = '얼굴을 타원에, 손바닥을 손 모양에 맞춰 주세요';
+const ALIGN_HINT = 'Fit your face in the oval and your palm in the hand outline';
 
 function angleChips(angles) {
-  return FINGER_KO.map((nm, i) => {
+  return FINGER_EN.map((nm, i) => {
     if (!angles) return `<span class="chip ang">${nm} –°</span>`;
     const deg = angles[ANGLE_KEYS[i]];
     const thr = i === 0 ? DEFAULTS.thumbExtendedDeg : DEFAULTS.extendedDeg;
@@ -1193,50 +1193,50 @@ function angleChips(angles) {
 }
 
 function alignLine(align) {
-  if (align.faceAligned && align.handAligned) return '<div class="hint ok">정렬됨 — 얼굴·손바닥이 가이드 안에 있습니다</div>';
-  return `<div class="hint al">${ALIGN_HINT} (얼굴 ${align.faceAligned ? '✓' : '✗'} · 손바닥 ${align.handAligned ? '✓' : '✗'})</div>`;
+  if (align.faceAligned && align.handAligned) return '<div class="hint ok">Aligned — face and palm are inside the guides</div>';
+  return `<div class="hint al">${ALIGN_HINT} (face ${align.faceAligned ? '✓' : '✗'} · palm ${align.handAligned ? '✓' : '✗'})</div>`;
 }
 
 function renderPoseHud(pose, target, states, angles, match, holdMs, align) {
-  hudStep.textContent = `라운드 ${S.round} · 손 모양 ${S.poseIdx + 1} / ${S.seq.length}`;
-  hudTitle.textContent = `"${POSE_KO[pose.name]}" 모양을 만들어 주세요`;
+  hudStep.textContent = `Round ${S.round} · Hand pose ${S.poseIdx + 1} / ${S.seq.length}`;
+  hudTitle.textContent = `Make this pose: ${POSE_EN[pose.name]}`;
   const targetChips = target
-    .map((v, i) => `<span class="chip ${v ? 'on' : ''} ${i === 0 ? 'skip' : ''}">${FINGER_KO[i]} ${v ? '펴기' : '접기'}</span>`)
+    .map((v, i) => `<span class="chip ${v ? 'on' : ''} ${i === 0 ? 'skip' : ''}">${FINGER_EN[i]} ${v ? 'extend' : 'fold'}</span>`)
     .join('');
-  const liveChips = FINGER_KO.map((nm, i) => {
+  const liveChips = FINGER_EN.map((nm, i) => {
     if (!states) return `<span class="chip">${nm} ?</span>`;
     const v = states[i];
     const cls = i === 0 ? 'skip' : v === target[i] ? 'ok' : 'ng';
-    return `<span class="chip ${v ? 'on' : ''} ${cls}">${nm} ${v ? '펴짐' : '접힘'}</span>`;
+    return `<span class="chip ${v ? 'on' : ''} ${cls}">${nm} ${v ? 'extended' : 'folded'}</span>`;
   }).join('');
   const live = !states
-    ? '<span class="live none">손 없음</span>'
+    ? '<span class="live none">No hand</span>'
     : match
-      ? '<span class="live yes">현재 일치</span>'
-      : '<span class="live no">현재 불일치</span>';
+      ? '<span class="live yes">Matching now</span>'
+      : '<span class="live no">Not matching</span>';
   const latch = pose.latched
-    ? '<span class="badge ok">인식됨 ✓</span>'
-    : '<span class="badge wait">인식 대기</span>';
+    ? '<span class="badge ok">Recognized ✓</span>'
+    : '<span class="badge wait">Waiting</span>';
   const holdPct = Math.min(100, (holdMs / HOLD_MS) * 100);
   hudDetail.innerHTML = `
-    <div class="fingers"><span class="lbl">목표</span>${targetChips}</div>
-    <div class="fingers"><span class="lbl">인식</span>${liveChips}</div>
-    <div class="fingers"><span class="lbl">각도</span>${angleChips(angles)}</div>
-    <div class="statusrow">${latch}${live}<span class="thr">기준: 펴짐 &gt; ${DEFAULTS.extendedDeg}° (엄지 &gt; ${DEFAULTS.thumbExtendedDeg}°, 판정 제외)</span></div>
+    <div class="fingers"><span class="lbl">Goal</span>${targetChips}</div>
+    <div class="fingers"><span class="lbl">Live</span>${liveChips}</div>
+    <div class="fingers"><span class="lbl">Angle</span>${angleChips(angles)}</div>
+    <div class="statusrow">${latch}${live}<span class="thr">Extended if &gt; ${DEFAULTS.extendedDeg}° (thumb &gt; ${DEFAULTS.thumbExtendedDeg}°, not scored)</span></div>
     ${pose.latched ? '' : `<div class="bar"><div style="width:${holdPct}%"></div></div>`}
     ${alignLine(align)}
-    <div class="hint">${pose.latched ? '인식됨 — ' : ''}다음(Space)을 누르면 색 측정(3초)을 시작합니다.</div>`;
+    <div class="hint">${pose.latched ? 'Recognized — ' : ''}Press Next (Space) to start the color check (3s).</div>`;
 }
 
 function renderColorHud(t, match) {
   const el = t - S.colorStart;
   const k = Math.min(S.colorSeq.length - 1, Math.max(0, Math.floor(el / STEP_MS)));
   const remain = Math.max(0, (STEP_MS * S.colorSeq.length - el) / 1000).toFixed(1);
-  hudStep.textContent = `라운드 ${S.round} · 손 모양 ${S.poseIdx + 1} / ${S.seq.length} · 색 측정`;
-  hudTitle.textContent = `색 측정 중 — 손 모양을 그대로 유지하세요 (${remain}초)`;
+  hudStep.textContent = `Round ${S.round} · Hand pose ${S.poseIdx + 1} / ${S.seq.length} · Color check`;
+  hudTitle.textContent = `Measuring color — hold the pose (${remain}s)`;
   const c = S.colorSeq[k];
-  hudDetail.innerHTML = `<div class="statusrow"><span class="chip"><span class="swatch" style="background:${rgbCss(COLOR_RGB[c])}"></span>${COLOR_KO[c]} (${k + 1}/${S.colorSeq.length})</span>${
-    match == null ? '' : match ? '<span class="live yes">현재 일치</span>' : '<span class="live no">현재 불일치</span>'
+  hudDetail.innerHTML = `<div class="statusrow"><span class="chip"><span class="swatch" style="background:${rgbCss(COLOR_RGB[c])}"></span>${COLOR_EN[c]} (${k + 1}/${S.colorSeq.length})</span>${
+    match == null ? '' : match ? '<span class="live yes">Matching now</span>' : '<span class="live no">Not matching</span>'
   }</div>`;
 }
 
@@ -1244,32 +1244,32 @@ function renderQuadHud(t, faceOk) {
   const el = t - S.quadStart;
   const k = Math.min(S.quadSeq.length - 1, Math.max(0, Math.floor(el / STEP_MS)));
   const remain = Math.max(0, (STEP_MS * S.quadSeq.length - el) / 1000).toFixed(1);
-  hudStep.textContent = `손 모양 ${S.poseIdx + 1}/${S.seq.length} · 입체 측정 ${k + 1}/${S.quadSeq.length} (${QUAD_KO[S.quadSeq[k]]})`;
-  hudTitle.textContent = `얼굴을 움직이지 마세요 · ${remain}초${faceOk === false ? ' · 얼굴 없음' : ''}`;
+  hudStep.textContent = `Hand pose ${S.poseIdx + 1}/${S.seq.length} · 3D check ${k + 1}/${S.quadSeq.length} (${QUAD_EN[S.quadSeq[k]]})`;
+  hudTitle.textContent = `Keep your face still · ${remain}s${faceOk === false ? ' · No face' : ''}`;
   hudDetail.innerHTML = '';
 }
 
 function renderDoneHud(hand, align) {
   const { verdict } = verdictSoFar();
-  hudStep.textContent = `라운드 ${S.round} 완료`;
-  hudTitle.textContent = `최종 판정: ${verdict.passed ? '통과 ✓' : '실패 ✗'}`;
+  hudStep.textContent = `Round ${S.round} complete`;
+  hudTitle.textContent = `Final verdict: ${verdict.passed ? 'Pass ✓' : 'Fail ✗'}`;
   hudDetail.innerHTML = `
-    <div class="fingers"><span class="lbl">각도</span>${angleChips(hand ? fingerAngles(hand) : null)}</div>
+    <div class="fingers"><span class="lbl">Angle</span>${angleChips(hand ? fingerAngles(hand) : null)}</div>
     ${alignLine(align)}
-    <div class="hint">다음(Space)을 누르면 새 라운드(새 손 모양 3개)를 시작합니다.</div>`;
+    <div class="hint">Press Next (Space) to start a new round (3 new hand poses).</div>`;
 }
 
 function setNextBtn() {
   if (!S) return;
   const isLast = S.poseIdx >= S.seq.length - 1;
   if (S.phase === 'pose') {
-    nextLbl.textContent = '다음 → 색 측정';
+    nextLbl.textContent = 'Next → color check';
     nextBtn.disabled = false;
   } else if (S.phase === 'color' || S.phase === 'quad') {
-    nextLbl.textContent = isLast ? '측정 중… (끝나면 최종 판정)' : '측정 중… (끝나면 다음 손 모양)';
+    nextLbl.textContent = isLast ? 'Measuring… (final verdict next)' : 'Measuring… (next pose follows)';
     nextBtn.disabled = true; // 측정 중(색 3초 + 입체 4초)에는 무시
   } else if (S.phase === 'done') {
-    nextLbl.textContent = '다음 → 새 라운드';
+    nextLbl.textContent = 'Next → new round';
     nextBtn.disabled = false;
   }
 }
@@ -1281,12 +1281,12 @@ function renderLog() {
   const final = S.phase === 'done';
   // v1.5 반사 패턴 진단: 지금까지 모인 모든 단계, 보정 기준 적용. 항상 한 줄(레이아웃 고정)
   const diag = diagnoseRound(judgeInputs(), diagOpts());
-  const diagLine = `<div class="diagline ${diag.code === 'ok' ? 'd-ok' : 'd-warn'}" data-code="${diag.code}" title="${esc(diag.message)}">진단: ${esc(diag.message)}</div>`;
+  const diagLine = `<div class="diagline ${diag.code === 'ok' ? 'd-ok' : 'd-warn'}" data-code="${diag.code}" title="${esc(diag.message)}">Diagnosis: ${esc(diag.message)}</div>`;
   if (doneCount === 0) {
-    hudVerdict.innerHTML = `<div class="vline">현재까지 판정: <span class="muted">데이터 없음</span></div>${diagLine}`;
+    hudVerdict.innerHTML = `<div class="vline">Verdict so far: <span class="muted">no data yet</span></div>${diagLine}`;
   } else {
-    hudVerdict.innerHTML = `<div class="vline ${verdict.passed ? 'pass' : 'fail'}">${final ? '최종 판정' : `현재까지 판정 (${doneCount}/${S.seq.length})`}: ${
-      verdict.passed ? '통과 ✓' : '실패 ✗'
+    hudVerdict.innerHTML = `<div class="vline ${verdict.passed ? 'pass' : 'fail'}">${final ? 'Final verdict' : `Verdict so far (${doneCount}/${S.seq.length})`}: ${
+      verdict.passed ? 'Pass ✓' : 'Fail ✗'
     }</div>${diagLine}${verdict.reasons.length ? `<ul class="reasons">${verdict.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}`;
   }
 
@@ -1295,8 +1295,8 @@ function renderLog() {
   S.poses.forEach((p, i) => {
     const started = i < S.poseIdx || (i === S.poseIdx && S.phase !== 'done');
     if (!started && !p.done) return;
-    const holdTxt = p.done ? ` · 유지 불일치 ${p.holdMiss}/${p.holdTotal}` : '';
-    const res = p.done ? (p.matched ? ' <span class="g">성공</span>' : ' <span class="r">실패</span>') : ' <span class="muted">진행 중</span>';
+    const holdTxt = p.done ? ` · hold mismatch ${p.holdMiss}/${p.holdTotal}` : '';
+    const res = p.done ? (p.matched ? ' <span class="g">Passed</span>' : ' <span class="r">Failed</span>') : ' <span class="muted">In progress</span>';
     let table = '';
     if (p.done) {
       const idxs = [];
@@ -1312,21 +1312,21 @@ function renderLog() {
           const ch = CHANNEL_IDX[m.color];
           const hd = jh.details[r];
           const fd = jf.details[r];
-          return `<tr><td><span class="swatch" style="background:${rgbCss(COLOR_RGB[m.color])}"></span>${COLOR_KO[m.color]} (${CHANNEL_KO[m.color]})</td>
+          return `<tr><td><span class="swatch" style="background:${rgbCss(COLOR_RGB[m.color])}"></span>${COLOR_EN[m.color]} (${CHANNEL_KO[m.color]})</td>
             <td class="num">${hd.delta ? fmt(hd.delta[ch]) : '–'}</td><td>${yn(hd.matched)}</td>
             <td class="num">${fd.delta ? fmt(fd.delta[ch]) : '–'}</td><td>${yn(fd.matched)}</td>
-            <td class="muted">${m.faceAligned ? '얼굴○' : '얼굴×'} ${m.handAligned ? '손○' : '손×'}</td></tr>`;
+            <td class="muted">${m.faceAligned ? 'Face○' : 'Face×'} ${m.handAligned ? 'Palm○' : 'Palm×'}</td></tr>`;
         })
         .join('');
-      table = `<table class="steps"><thead><tr><th>색</th><th class="num">손 Δ</th><th></th><th class="num">얼굴 Δ</th><th></th><th>정렬</th></tr></thead>
-        <tbody>${rows}</tbody><tfoot><tr><td>손 ${jh.matched}/${jh.total} · 얼굴 ${jf.matched}/${jf.total}</td><td colspan="5"></td></tr></tfoot></table>`;
+      table = `<table class="steps"><thead><tr><th>Color</th><th class="num">Palm Δ</th><th></th><th class="num">Face Δ</th><th></th><th>Aligned</th></tr></thead>
+        <tbody>${rows}</tbody><tfoot><tr><td>Palm ${jh.matched}/${jh.total} · Face ${jf.matched}/${jf.total}</td><td colspan="5"></td></tr></tfoot></table>`;
       const q = p.quad;
       table += q
-        ? `<div class="quadrow">입체 H <b>${fmt(q.H, 3)}</b> · V ${fmt(q.V, 3)} ${yn(q.passed)} <span class="muted">(기준 H &gt; ${TH.minSwingH})</span></div>`
-        : `<div class="quadrow muted">입체 측정 중…</div>`;
+        ? `<div class="quadrow">3D H <b>${fmt(q.H, 3)}</b> · V ${fmt(q.V, 3)} ${yn(q.passed)} <span class="muted">(threshold H &gt; ${TH.minSwingH})</span></div>`
+        : `<div class="quadrow muted">3D check in progress…</div>`;
     }
-    blocks.push(`<div class="logpose"><div class="loghead"><b>${i + 1}. ${esc(POSE_KO[p.name])}</b> · ${
-      p.latched ? '<span class="g">인식됨 ✓</span>' : '<span class="r">미인식</span>'
+    blocks.push(`<div class="logpose"><div class="loghead"><b>${i + 1}. ${esc(POSE_EN[p.name])}</b> · ${
+      p.latched ? '<span class="g">Recognized ✓</span>' : '<span class="r">Not recognized</span>'
     }${holdTxt} ·${res}</div>${table}</div>`);
   });
   hudLog.innerHTML = blocks.reverse().join('') || ''; // 최신 손 모양이 맨 위
@@ -1397,9 +1397,9 @@ renderCalibStatus();
 loadCalibration();
 
 if (!window.isSecureContext) {
-  showError('카메라는 보안 컨텍스트에서만 동작합니다. http://localhost:8000 또는 https 주소로 열어 주세요.');
+  showError('The camera only works in a secure context. Open this page via http://localhost:8000 or https.');
 }
 ensureModels().catch((e) => {
   console.error(e);
-  showError(`모델을 불러오지 못했습니다. 네트워크 연결을 확인한 뒤 "시작"을 다시 눌러 주세요.\n(${e && e.message ? e.message : e})`);
+  showError(`Could not load the models. Check your network connection and press "Start" again.\n(${e && e.message ? e.message : e})`);
 });
