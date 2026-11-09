@@ -54,3 +54,29 @@ export function faceMeanRgb(frame, landmarks) {
   }
   return n > 0 ? [r / n, g / n, b / n] : null;
 }
+
+export function faceRegions(frame, landmarks) {
+  if (!frame?.data || !landmarks || FACE_ROI_IDX.some(i => !landmarks[i])) return null;
+  if (landmarks.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y))) return null;
+  const { width: w, height: h, data } = frame;
+  const circles = faceCircles(landmarks, w, h);
+  let clipped = 0, pixels = 0;
+  const regions = circles.map(c => {
+    const sum = [0, 0, 0]; let count = 0;
+    for (let y = Math.max(0, Math.floor(c.y - c.r)); y < Math.min(h, Math.ceil(c.y + c.r)); y++) {
+      for (let x = Math.max(0, Math.floor(c.x - c.r)); x < Math.min(w, Math.ceil(c.x + c.r)); x++) {
+        if ((x + .5 - c.x) ** 2 + (y + .5 - c.y) ** 2 > c.r ** 2) continue;
+        const k = (y * w + x) * 4;
+        if (Math.max(data[k], data[k + 1], data[k + 2]) >= 250 || Math.min(data[k], data[k + 1], data[k + 2]) <= 2) clipped++;
+        for (let channel = 0; channel < 3; channel++) sum[channel] += data[k + channel];
+        count++; pixels++;
+      }
+    }
+    return count >= 30 ? sum.map(v => v / count) : null;
+  });
+  if (regions.some(r => !r)) return null;
+  const xs = landmarks.map(p => p.x), ys = landmarks.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  return { regions, face: [0, 1, 2].map(c => regions.reduce((s, r) => s + r[c], 0) / 3), clipped: clipped / pixels,
+    box: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, w: maxX - minX, h: maxY - minY } };
+}

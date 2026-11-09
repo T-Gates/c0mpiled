@@ -118,7 +118,7 @@
     <button class="btn" id="enterBtn" type="button" data-invite hidden>입장하기</button>
     <div class="err" id="lobbyErr"></div>
     <a class="newroom" id="newRoomLink" href="call.html" hidden>새 방 만들기</a>
-    <div class="notice">참여하면 호스트가 화면 색 깜빡임 확인(약 4초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
+    <div class="notice">참여하면 호스트가 pulse·무작위 조명 검사(약 50초)을 실행할 수 있습니다. 광과민성 발작 위험이 있으면 참여하지 마세요.</div>
   </div>
 </section>
 
@@ -134,6 +134,7 @@
     <button class="cbtn" id="camBtn" type="button"><span class="ic">📷</span>카메라</button>
     <div class="sep" data-host></div>
     <button class="judge" id="judgeBtn" type="button" data-host disabled>딥페이크 판정</button>
+    <button id="cancelCheck" type="button" data-host hidden>검사 중지</button>
     <div class="sep"></div>
     <button class="cbtn leave" id="leaveBtn" type="button"><span class="ic">✕</span>나가기</button>
   </div>
@@ -141,7 +142,7 @@
 </section>
 
 <!-- 참여자 플래시 -->
-<section class="screen" id="flash"><div class="pill">호스트가 사람 확인 중입니다 · 화면을 바라봐 주세요</div></section>
+<section class="screen" id="flash"><div class="pill"><span id="checkMessage">검사 준비 중</span><br><button id="stopGuestCheck" type="button">중지 (Esc)</button></div></section>
 
 <script type="module" src="./src/call/main.js"></script>
 </body>
